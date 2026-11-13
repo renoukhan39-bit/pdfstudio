@@ -12,9 +12,11 @@ from app.pdf_engine import (
     MergeError,
     merge_pdf_bytes,
 )
+from app.upload_limits import UploadLimitMiddleware
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 app = FastAPI(title="PDF Studio", version="0.1.0", docs_url=None, redoc_url=None)
+app.add_middleware(UploadLimitMiddleware)
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 
@@ -57,11 +59,11 @@ async def available_tools():
 
 @app.post("/api/tools/merge", response_class=Response)
 async def merge(files: list[UploadFile] = File(...)):
-    if not 2 <= len(files) <= MAX_FILES:
-        raise HTTPException(status_code=400, detail=f"Select between 2 and {MAX_FILES} PDFs.")
     payloads = []
     total = 0
     try:
+        if not 2 <= len(files) <= MAX_FILES:
+            raise HTTPException(status_code=400, detail=f"Select between 2 and {MAX_FILES} PDFs.")
         for upload in files:
             data = await upload.read(MAX_FILE_BYTES + 1)
             if not data or len(data) > MAX_FILE_BYTES:
@@ -87,3 +89,4 @@ async def merge(files: list[UploadFile] = File(...)):
             "X-PDF-Pages": str(pages),
         },
     )
+

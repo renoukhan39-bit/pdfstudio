@@ -41,4 +41,5 @@ If you are a QA engineer: define canonical fixtures and acceptance tests.
 If you are a designer: prototype the unified upload/editor/workspace flow.
 If you use Codex: follow [AGENTS.md](../AGENTS.md) and [Codex Playbook](CODEX-PLAYBOOK.md).
 
-**The first install/run/test commands are documented** in [Prototype](PROTOTYPE.md). Exact pinned-dependency clean-install CI results still require verification.
+**The install/run/test commands are documented** in [Prototype](PROTOTYPE.md) and the [CI failure-recovery guide](CI.md). The previous prototype CI passed; the expanded contributor workflow adds matrix tests, coverage, lint, package/container checks and dependency scanning. See [Implementation Status](IMPLEMENTATION-STATUS.md) for verified evidence and outstanding checks.
+

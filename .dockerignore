@@ -7,3 +7,12 @@ __pycache__
 .pytest_cache
 .env*
 *.log
+.venv
+venv
+build
+dist
+reports
+.coverage
+.ruff_cache
+*.egg-info
+

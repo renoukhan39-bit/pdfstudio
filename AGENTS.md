@@ -26,7 +26,7 @@ Create an independently branded commercial-quality PDF platform. Compete with Ad
 - No feature can be marked shipped without end-to-end output verification and security acceptance where applicable.
 
 ## Current implementation and next task
-The first merge prototype exists. Read docs/PROTOTYPE.md and docs/IMPLEMENTATION-STATUS.md. Next: verify clean CI, audit current dependencies and input risk, then create a Gotenberg 9 adapter spike with output tests. No public deployment until PDF worker isolation and ingress hard limits are proven.
+The merge prototype now has raw-body upload limits and expanded contributor CI. Read docs/PROTOTYPE.md, docs/CI.md and docs/IMPLEMENTATION-STATUS.md. Next: resolve any CI findings, lock/audit dependencies, then create an isolated Gotenberg 9 adapter spike with output tests. No public deployment until PDF worker isolation and global resource limits are proven.
 
 ## Decision discipline
 For every engine selection record: capabilities, license, integration effort, maintenance, security, quality, costs and fallback. Use [Decisions](docs/DECISIONS.md). Ask for owner approval on licensing/branding/pricing choices rather than silently choosing them.
@@ -42,3 +42,4 @@ For every engine selection record: capabilities, license, integration effort, ma
 Summary | Files changed | Reuse decision | Commands run + results | Before/after behavior | Security/license impact | Open risks | Next smallest task.
 
 See [Codex Playbook](docs/CODEX-PLAYBOOK.md).
+

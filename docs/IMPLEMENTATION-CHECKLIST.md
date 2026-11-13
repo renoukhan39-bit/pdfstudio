@@ -11,9 +11,11 @@
 - [ ] Approve framework/monorepo structure and replaceable engine-adapter contracts.
 - [ ] Create a runnable app with verified fresh-install commands and reproducible dependency pins.
 - [ ] Create automated tests, CI, PR review policy, dependency scanning and SBOM.
+  - Progress 2026-11-14: expanded contributor workflow and [failure guide](CI.md) implemented; remote run and administrator-required branch ruleset still need verification.
 - [ ] Set policy for document retention, temporary-file deletion, privacy and hosting.
 - [ ] Create PDF test corpus including scans, forms, encryption, fonts and multilingual content.
 - [ ] Isolate untrusted PDF processing and enforce strict global upload/compute limits.
+  - Progress 2026-11-14: per-request raw-body limit, upload deadline and cleanup tests implemented. Worker isolation and global concurrency/compute limits remain open.
 
 ## Phase 1 — Working online toolkit
 
@@ -99,3 +101,4 @@ Each feature must have: real code, passed tests on synthetic PDFs including edge
 ## Codex workflow
 
 Pick the next incomplete item, read [AGENTS.md](../AGENTS.md), inspect existing code first, choose existing libraries if compatible, implement the smallest complete vertical slice, run tests, and submit a focused PR with exact evidence. Do not regenerate the application or claim tools are finished without successful output checks.
+

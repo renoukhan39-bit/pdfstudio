@@ -25,6 +25,10 @@ def merge_pdf_bytes(documents: Sequence[bytes]) -> tuple[bytes, int]:
     """
     if not 2 <= len(documents) <= MAX_FILES:
         raise MergeError(f"Choose between 2 and {MAX_FILES} PDF files.")
+    if any(not document or len(document) > MAX_FILE_BYTES for document in documents):
+        raise MergeError("Each PDF must be between 1 byte and 8 MB.")
+    if sum(map(len, documents)) > MAX_TOTAL_BYTES:
+        raise MergeError("Combined files cannot exceed 40 MB.")
 
     writer = PdfWriter()
     pages = 0
@@ -56,3 +60,4 @@ def merge_pdf_bytes(documents: Sequence[bytes]) -> tuple[bytes, int]:
         raise MergeError("At least one PDF could not be read or merged.") from exc
     finally:
         writer.close()
+

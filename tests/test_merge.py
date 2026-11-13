@@ -1,10 +1,13 @@
 """Synthetic fixtures only: no user or copyrighted documents."""
 from io import BytesIO
+import asyncio
+from unittest.mock import patch
 
+from fastapi import HTTPException, UploadFile
 from fastapi.testclient import TestClient
 from pypdf import PdfReader, PdfWriter
 
-from app.main import app
+from app.main import app, merge
 from app.pdf_engine import MAX_FILE_BYTES, MAX_FILES, MAX_TOTAL_PAGES, MergeError, merge_pdf_bytes
 
 client = TestClient(app)
@@ -98,3 +101,83 @@ def test_input_is_not_mutated():
     assert pages == 2
     assert pdf1.startswith(b"%PDF-") and pdf2.startswith(b"%PDF-")
     assert merged != pdf1 and merged != pdf2
+
+
+def test_rejects_empty_pdf_and_truncated_structure():
+    for document in (make_pdf([]), b"%PDF-1.7\ntruncated"):
+        response = client.post("/api/tools/merge", files=multipart(make_pdf(), document))
+        assert response.status_code == 422
+
+
+def test_engine_cannot_bypass_file_size_limit():
+    with patch("app.pdf_engine.MAX_FILE_BYTES", 1):
+        try:
+            merge_pdf_bytes([make_pdf(), make_pdf()])
+        except MergeError as exc:
+            assert "Each PDF" in str(exc)
+        else:
+            raise AssertionError("Expected file-size rejection")
+
+
+def test_engine_cannot_bypass_total_size_limit():
+    with patch("app.pdf_engine.MAX_TOTAL_BYTES", 1):
+        try:
+            merge_pdf_bytes([make_pdf(), make_pdf()])
+        except MergeError as exc:
+            assert "Combined" in str(exc)
+        else:
+            raise AssertionError("Expected aggregate-size rejection")
+
+
+def test_api_rejects_total_size_limit():
+    with patch("app.main.MAX_TOTAL_BYTES", 1):
+        response = client.post("/api/tools/merge", files=multipart(make_pdf(), make_pdf()))
+    assert response.status_code == 413
+
+
+def test_oversized_raw_request_retains_security_headers():
+    from app.upload_limits import MAX_REQUEST_BYTES
+
+    response = client.post("/api/tools/merge", content=b"small", headers={"Content-Length": str(MAX_REQUEST_BYTES + 1)})
+    assert response.status_code == 413
+    assert response.headers["cache-control"] == "no-store"
+    assert response.headers["x-content-type-options"] == "nosniff"
+
+
+def test_invalid_file_count_closes_uploads():
+    upload = UploadFile(file=BytesIO(make_pdf()), filename="synthetic.pdf")
+    try:
+        asyncio.run(merge([upload]))
+    except HTTPException as exc:
+        assert exc.status_code == 400
+    else:
+        raise AssertionError("Expected file-count rejection")
+    assert upload.file.closed
+
+
+def test_merge_preserves_extractable_text_and_order():
+    from pypdf.generic import DecodedStreamObject, DictionaryObject, NameObject
+
+    documents = []
+    for text in ("First synthetic page", "Second synthetic page"):
+        with PdfWriter() as writer:
+            page = writer.add_blank_page(width=200, height=300)
+            font = DictionaryObject({
+                NameObject("/Type"): NameObject("/Font"),
+                NameObject("/Subtype"): NameObject("/Type1"),
+                NameObject("/BaseFont"): NameObject("/Helvetica"),
+            })
+            page[NameObject("/Resources")] = DictionaryObject({
+                NameObject("/Font"): DictionaryObject({NameObject("/F1"): writer._add_object(font)})
+            })
+            stream = DecodedStreamObject()
+            stream.set_data(f"BT /F1 12 Tf 20 200 Td ({text}) Tj ET".encode())
+            page[NameObject("/Contents")] = writer._add_object(stream)
+            output = BytesIO()
+            writer.write(output)
+            documents.append(output.getvalue())
+    merged, count = merge_pdf_bytes(documents)
+    assert count == 2
+    pages = PdfReader(BytesIO(merged)).pages
+    assert [page.extract_text() for page in pages] == ["First synthetic page", "Second synthetic page"]
+

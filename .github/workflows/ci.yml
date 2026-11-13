@@ -1,22 +1,148 @@
-name: Prototype CI
+name: CI
 on:
   push:
     branches: [main]
   pull_request:
-
+  workflow_dispatch:
+  merge_group:
+permissions:
+  contents: read
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
-  python:
+  quality:
+    name: Lint and syntax
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Install dependencies
-        run: python -m pip install -e '.[dev]'
-      - name: Check Python syntax
-        run: python -m compileall -q app
-      - name: Run synthetic PDF tests
-        run: python -m pytest -q
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: python -m pip install -e '.[dev]'
+      - run: python -m ruff check app tests scripts
+      - run: python -m compileall -q app
+      - run: node --check app/static/app.js
+  tests:
+    name: Tests (Python ${{ matrix.python }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.11', '3.12', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - run: python -m pip install -e '.[dev]'
+      - run: python -m pip check
+      - name: Test output PDFs and enforce coverage
+        run: python -m pytest -q --junitxml=reports/junit.xml --cov=app --cov-branch --cov-report=term-missing --cov-report=xml:reports/coverage.xml --cov-fail-under=85
+      - name: Save reports even when tests fail
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports-${{ matrix.python }}
+          path: reports/
+          if-no-files-found: warn
+          retention-days: 7
+  package:
+    name: Package and installed-app smoke test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -e '.[dev]'
+      - run: python -m build
+      - name: Verify wheel and static assets outside checkout
+        run: |
+          python -m venv /tmp/pdfstudio-wheel
+          /tmp/pdfstudio-wheel/bin/python -m pip install dist/*.whl httpx==0.28.1
+          cd /tmp
+          /tmp/pdfstudio-wheel/bin/python "$GITHUB_WORKSPACE/scripts/smoke.py"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: python-distributions
+          path: dist/
+          retention-days: 7
+  dependencies:
+    name: Dependency audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -e '.[dev]'
+      - name: Audit dependencies and export CycloneDX inventory
+        run: python -m pip_audit --skip-editable --format cyclonedx-json --output dependency-sbom.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: dependency-sbom
+          path: dependency-sbom.json
+          retention-days: 7
+  container:
+    name: Container smoke test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - run: docker build --tag pdfstudio:ci .
+      - name: Check non-root runtime and packaged assets
+        run: |
+          docker run --rm --entrypoint python pdfstudio:ci -c "import os; from app.main import STATIC_DIR; assert os.getuid() != 0; assert (STATIC_DIR / 'index.html').is_file()"
+          docker run --detach --name pdfstudio-ci --publish 127.0.0.1:8000:8000 pdfstudio:ci
+          curl --fail --retry 15 --retry-delay 1 --retry-connrefused http://127.0.0.1:8000/api/health
+          curl --fail http://127.0.0.1:8000/ > /dev/null
+          curl --fail http://127.0.0.1:8000/static/app.js > /dev/null
+      - name: Container logs and cleanup
+        if: always()
+        run: |
+          docker logs pdfstudio-ci || true
+          docker rm --force pdfstudio-ci || true
+  required:
+    name: CI required
+    if: always()
+    needs: [quality, tests, package, dependencies, container]
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Require every check to succeed
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          python - <<'PY'
+          import json, os, sys
+          results = json.loads(os.environ['RESULTS'])
+          failed = [name for name, job in results.items() if job['result'] != 'success']
+          if failed:
+              print('Failed, skipped, or cancelled checks: ' + ', '.join(failed))
+              sys.exit(1)
+          print('All required checks passed.')
+          PY
+

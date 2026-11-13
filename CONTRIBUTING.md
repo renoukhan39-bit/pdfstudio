@@ -25,6 +25,16 @@ python -m pytest -q
 
 Detailed scope, API and security limitations: [Prototype](docs/PROTOTYPE.md). Work through the [ordered checklist](docs/IMPLEMENTATION-CHECKLIST.md).
 
+## Required automated checks
+
+Read [CI and failure recovery](docs/CI.md). Every PR runs lint, JavaScript syntax,
+Python 3.11/3.12/3.13 tests with an 85% coverage gate, an installed-wheel smoke
+test, dependency vulnerability scanning/SBOM export, and a non-root container
+smoke test. Failed tests fail the workflow and retain reports for diagnosis.
+Reproduce the failed command locally, fix it, and push another commit.
+Maintainers should require the `CI required` check and one review in main's
+branch ruleset; workflow code alone does not activate merge enforcement.
+
 ## Pull request expectations
 - Link the issue and mention the feature ID from the inventory.
 - Explain why an existing library/service is or is not sufficient.
@@ -48,3 +58,4 @@ No license has yet been selected for original project code. Do not assume pull r
 
 ## Conduct and security
 See [Code of Conduct](CODE_OF_CONDUCT.md) and [Security](SECURITY.md). Do not publish exploitable proof-of-concepts or real users' PDFs in a public issue.
+
