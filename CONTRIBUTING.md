@@ -10,13 +10,20 @@ Welcome! You should not need access to private chats or previous conversations t
 5. Submit a focused pull request; avoid large speculative rewrites.
 
 ## Current developer setup
-**Documentation-only repository.** There is no application install/build command yet. Do not fabricate an npm, Docker or test workflow. When the first executable project is selected, add verified commands to this file and a reproducible development environment.
+
+The repository has an **early merge prototype**, not the whole planned toolkit.
 
 ~~~sh
 git clone https://github.com/renoukhan39-bit/pdfstudio.git
 cd pdfstudio
-# Read README.md and docs/START-HERE.md before coding.
+python -m venv .venv
+source .venv/bin/activate
+python -m pip install -e '.[dev]'
+uvicorn app.main:app --reload
+python -m pytest -q
 ~~~
+
+Detailed scope, API and security limitations: [Prototype](docs/PROTOTYPE.md). Work through the [ordered checklist](docs/IMPLEMENTATION-CHECKLIST.md).
 
 ## Pull request expectations
 - Link the issue and mention the feature ID from the inventory.

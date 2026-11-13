@@ -8,7 +8,7 @@
 - **Product:** A competitive, privacy-focused PDF website and eventual multi-platform software system.
 - **Commercial goal:** Build an independent, sustainable competitor to Adobe Acrobat, iLovePDF, Sejda and Smallpdf.
 - **Technical principle:** One modular monorepo and one branded UX; compose best-fit PDF engines instead of merging multiple entire applications.
-- **Truth about current status:** This repository presently contains planning docs, not a functioning implementation or verified feature availability.
+- **Truth about current status:** A **merge-only working prototype** now exists with a FastAPI backend and a basic frontend; it is not security-hardened or deployed. See [Prototype](PROTOTYPE.md) and [Implementation Status](IMPLEMENTATION-STATUS.md).
 
 ## Where decisions are written
 1. [Product Vision](PRODUCT-VISION.md) — positioning, audience, principles and success criteria.
@@ -41,4 +41,4 @@ If you are a QA engineer: define canonical fixtures and acceptance tests.
 If you are a designer: prototype the unified upload/editor/workspace flow.
 If you use Codex: follow [AGENTS.md](../AGENTS.md) and [Codex Playbook](CODEX-PLAYBOOK.md).
 
-**There are no verified install commands yet;** the first milestone must supply them.
+**The first install/run/test commands are documented** in [Prototype](PROTOTYPE.md). Exact pinned-dependency clean-install CI results still require verification.

@@ -31,3 +31,13 @@ The repository is public but original source-code licensing has not been chosen.
 
 ## How to add ADRs
 Record date, context, decision alternatives, exact chosen option, affected licenses, security, cost, performance, owner approval, implementation consequences and reversal plan. Avoid recording unapproved proposals as facts.
+
+## ADR-0006 — Minimal Python merge prototype (IMPLEMENTED FOR DEVELOPMENT ONLY)
+
+**Context:** The initial repository was documents-only. Building every tool or importing PDFClear without due diligence would be expensive and risky.
+
+**Implementation:** A small FastAPI API + HTML/JS frontend with a `pypdf` merge operation, tests and a Dockerfile. No persistent document storage is intentionally used.
+
+**Not a final product architecture decision:** The Python PDF parser operates inside the API process, without a hostile-file sandbox. Do **not** deploy publicly. PDFClear and Gotenberg remain candidates pending audit; high-fidelity native editing is still undecided.
+
+**Evidence:** `tests/test_merge.py`, `docs/IMPLEMENTATION-STATUS.md`, `docs/PROTOTYPE.md`. Dependency license is BSD-3-Clause for pypdf and MIT for FastAPI (version-specific recheck required).

@@ -1,6 +1,6 @@
 # PDF Studio Feature Inventory and Target Matrix
 
-**Status disclaimer:** This is an aspirational **product backlog**, not an assertion that these tools are built. Until proved by tests, all entries are **PLANNED**. The feature ID remains stable as we implement. P0 = first launch candidate; P1 = competitive expansion; P2 = later/enterprise/advanced.
+**Status disclaimer:** This is an aspirational **product backlog**, not an assertion that these tools are built. With the exception of **OP-01 (merge PDF), which has a locally tested early PROTOTYPE**, all items remain **PLANNED**. OP-01 is **not yet SHIPPED**. The feature ID remains stable as we implement. P0 = first launch candidate; P1 = competitive expansion; P2 = later/enterprise/advanced.
 
 After implementation, record: owner, engine adapter, supported platforms, limitations, fixture IDs, test evidence, status (PLANNED / IN_PROGRESS / TESTED / SHIPPED).
 

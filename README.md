@@ -1,6 +1,6 @@
 # PDF Studio
 
-> **Project status: planning / architecture.** This repository is currently a documentation-first blueprint, **not yet a working PDF application**. No external projects or services described below are integrated merely because they are listed here.
+> **Project status: early prototype.** The repository now contains an initial runnable web/API implementation of **Merge PDF**. Everything else remains a planned feature unless explicitly tested; no outside application is imported by listing it here.
 
 **Mission:** Build an independently branded, reliable, privacy-conscious, affordable, all-in-one PDF platform capable of competing on quality with Adobe Acrobat, iLovePDF, Sejda, Smallpdf and other leading PDF products.
 
@@ -46,9 +46,24 @@ The [Feature Inventory](docs/FEATURE-INVENTORY.md) records goals and priorities.
 
 **No vendor choice is approved by this README.** Validate APIs, versions, source quality, commercial terms, transitive licenses, deployment cost and actual outputs first. Do not combine entire applications blindly.
 
-## Current state and first milestone
+## Prototype: get it running
 
-The repository began as a README-only repository. This documentation establishes shared direction; it does not add a working application. The first coding milestone is **a reproducible web shell plus one end-to-end tested PDF tool**, after a license, architecture and dependency audit. See [Roadmap](docs/ROADMAP.md).
+This repository now has a small **FastAPI + pypdf merge tool** and responsive no-build frontend. It is **not production-ready**. It deliberately avoids importing entire third-party PDF apps. See [Detailed prototype instructions](docs/PROTOTYPE.md).
+
+~~~bash
+git clone https://github.com/renoukhan39-bit/pdfstudio.git
+cd pdfstudio
+python -m venv .venv
+source .venv/bin/activate
+python -m pip install -e '.[dev]'
+uvicorn app.main:app --reload
+# open http://127.0.0.1:8000
+~~~
+
+Run tests: `python -m pytest -q`. The merge API is `POST /api/tools/merge`; merge 2–10 PDFs, 8 MB each, 200 pages maximum. Synthetic local tests passed, but **clean-install CI and production security have not been confirmed**.
+
+**Plan before coding more:** [Complete Ordered Checklist](docs/IMPLEMENTATION-CHECKLIST.md) · [Live Implementation Status](docs/IMPLEMENTATION-STATUS.md) · [Known Blockers](docs/IMPLEMENTATION-STATUS.md#blockers-requiring-ownercodex-follow-up).
+
 
 ## What makes this different
 
@@ -67,4 +82,4 @@ Read [Contributing](CONTRIBUTING.md), [Security](SECURITY.md), [Code of Conduct]
 
 ## Documentation index
 
-[Start Here](docs/START-HERE.md) · [Vision](docs/PRODUCT-VISION.md) · [Competitive Benchmarks](docs/COMPETITIVE-BENCHMARKS.md) · [Feature Inventory](docs/FEATURE-INVENTORY.md) · [Architecture](docs/ARCHITECTURE.md) · [Reuse vs Build](docs/REUSE-VS-BUILD.md) · [Licenses](docs/LICENSING-AND-DEPENDENCIES.md) · [Roadmap](docs/ROADMAP.md) · [Backlog](docs/IMPLEMENTATION-BACKLOG.md) · [UX](docs/UX-BLUEPRINT.md) · [Quality](docs/QUALITY-AND-TESTING.md) · [API/Data](docs/API-AND-DATA-CONTRACTS.md) · [Operations](docs/OPERATIONS-AND-SECURITY.md) · [Codex](docs/CODEX-PLAYBOOK.md) · [Research Links](docs/RESEARCH-REFERENCES.md) · [Decisions](docs/DECISIONS.md).
+[Implementation Checklist](docs/IMPLEMENTATION-CHECKLIST.md) · [Implementation Status](docs/IMPLEMENTATION-STATUS.md) · [Prototype](docs/PROTOTYPE.md) · [Start Here](docs/START-HERE.md) · [Vision](docs/PRODUCT-VISION.md) · [Competitive Benchmarks](docs/COMPETITIVE-BENCHMARKS.md) · [Feature Inventory](docs/FEATURE-INVENTORY.md) · [Architecture](docs/ARCHITECTURE.md) · [Reuse vs Build](docs/REUSE-VS-BUILD.md) · [Licenses](docs/LICENSING-AND-DEPENDENCIES.md) · [Roadmap](docs/ROADMAP.md) · [Backlog](docs/IMPLEMENTATION-BACKLOG.md) · [UX](docs/UX-BLUEPRINT.md) · [Quality](docs/QUALITY-AND-TESTING.md) · [API/Data](docs/API-AND-DATA-CONTRACTS.md) · [Operations](docs/OPERATIONS-AND-SECURITY.md) · [Codex](docs/CODEX-PLAYBOOK.md) · [Research Links](docs/RESEARCH-REFERENCES.md) · [Decisions](docs/DECISIONS.md).

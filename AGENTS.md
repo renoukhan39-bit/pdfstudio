@@ -3,7 +3,7 @@
 Read this file, [Start Here](docs/START-HERE.md), [Architecture](docs/ARCHITECTURE.md), [Licensing](docs/LICENSING-AND-DEPENDENCIES.md), and [Quality](docs/QUALITY-AND-TESTING.md) before changing code.
 
 ## Mission and scope
-Create an independently branded commercial-quality PDF platform. Compete with Adobe Acrobat in editing depth, Sejda in editing convenience, iLovePDF in tool breadth, and Smallpdf in usability. **Do not claim we are #1 or already feature complete.** Treat this repository as documentation-only until executable application code is committed.
+Create an independently branded commercial-quality PDF platform. Compete with Adobe Acrobat in editing depth, Sejda in editing convenience, iLovePDF in tool breadth, and Smallpdf in usability. **Do not claim we are #1 or already feature complete.** A merge-only proof of concept now exists under app/ with tests/. Its tool status is PROTOTYPE, not SHIPPED. Follow docs/IMPLEMENTATION-CHECKLIST.md in order.
 
 ## Mandatory engineering sequence
 1. Read the repository and identify what already exists before suggesting a rewrite.
@@ -25,8 +25,8 @@ Create an independently branded commercial-quality PDF platform. Compete with Ad
 - No credentials, keys, customer data, sample IDs or confidential PDFs in commits, logs, issues, or AI prompts.
 - No feature can be marked shipped without end-to-end output verification and security acceptance where applicable.
 
-## First implementation task
-Create a small proof of concept: choose/validate a repo starter, provide a reproducible development environment, add one real PDF operation behind an adapter, demonstrate upload -> processing -> download, and add automated tests with synthetic fixtures. Report licensing and any missing features.
+## Current implementation and next task
+The first merge prototype exists. Read docs/PROTOTYPE.md and docs/IMPLEMENTATION-STATUS.md. Next: verify clean CI, audit current dependencies and input risk, then create a Gotenberg 9 adapter spike with output tests. No public deployment until PDF worker isolation and ingress hard limits are proven.
 
 ## Decision discipline
 For every engine selection record: capabilities, license, integration effort, maintenance, security, quality, costs and fallback. Use [Decisions](docs/DECISIONS.md). Ask for owner approval on licensing/branding/pricing choices rather than silently choosing them.
