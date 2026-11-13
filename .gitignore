@@ -1,0 +1,28 @@
+# Planned multi-language PDF platform
+.env
+.env.*
+!.env.example
+node_modules/
+dist/
+build/
+.next/
+coverage/
+.cache/
+*.log
+__pycache__/
+.pytest_cache/
+.venv/
+venv/
+target/
+tmp/
+temp/
+uploads/
+downloads/
+processed/
+private/
+*.pem
+*.p12
+*.pfx
+*.key
+.DS_Store
+# Do not commit customer document samples or secrets.
