@@ -9,7 +9,7 @@
 | First website + API | Prototype committed | `app/main.py`, `app/static/` |
 | OP-01 Merge PDF | Prototype; local output/negative tests passed | 17 synthetic tests in `tests/test_merge.py`, including text and page-order preservation |
 | Raw upload limits | Implemented; 12 local regression tests passed | `app/upload_limits.py`, `tests/test_upload_limits.py`; parser isolation remains outstanding |
-| Contributor CI | Expanded; new workflow awaiting remote result | Matrix tests, coverage, lint, package/container smoke, dependency audit and SBOM; [CI guide](CI.md) |
+| Contributor CI | Running and detecting failures | [Run 43516326218](https://github.com/renoukhan39-bit/pdfstudio/actions/runs/43516326218): matrix tests, lint and packaging passed; dependency audit failed; container readiness retry corrected in follow-up |
 | Previous clean CI dependency install | Verified on previous main commit | [Run 43471256283](https://github.com/renoukhan39-bit/pdfstudio/actions/runs/43471256283), commit `8e408f8` succeeded |
 | Gotenberg 9 adapter | Planned | Verify its latest merge/conversion endpoints and quality |
 | PDFClear and Folio imports | Not done | Audit required before any code import |
@@ -27,6 +27,12 @@
 ## Verification performed
 
 ### 2026-11-14 contributor CI and upload hardening
+
+**Remote evidence:** [GitHub run 43516326218](https://github.com/renoukhan39-bit/pdfstudio/actions/runs/43516326218), commit `85258f0`, installed the exact project pins successfully. All **29 tests passed on Python 3.11, 3.12 and 3.13**. Python 3.12 reported **97.07% branch-inclusive coverage**. Ruff, JavaScript/Python syntax, wheel/sdist build and installed-wheel smoke tests passed. Container build and non-root/asset checks passed, but the first health probe hit a startup connection reset; the follow-up uses bounded retries for all connection errors. The dependency audit correctly failed with **18 known vulnerabilities in 3 packages**; see the downloadable CycloneDX artifact. The follow-up also prints a human-readable advisory table on audit failures. Do not suppress this failure: upgrade the affected dependencies and rerun the matrix before release. The final follow-up run may still be pending at the end of this timeboxed session.
+
+**Additional local packaging check:** `setuptools.build_meta.build_wheel('dist')` succeeded; installing that wheel with `pip --no-index --no-deps --target` and running `scripts/smoke.py` from outside the checkout passed using the preinstalled runtime dependencies.
+
+**Audit triage:** the SBOM identifies `starlette==0.50.0`, `python-multipart==0.0.29` and development-only `pytest==9.0.2`. FastAPI 0.128.2 constrains Starlette below 0.51, so remediation must update compatible FastAPI/Starlette versions together, plus multipart and pytest, then verify the whole matrix. No advisory is ignored and the audit remains a failing required check until resolved. This dependency remediation is the immediate next task after the requested ten-minute session.
 
 - `python -m unittest discover -s tests -p 'test_upload_limits.py' -q`: 12 passed.
 - All 17 `test_*` functions in `tests/test_merge.py` executed with Python `runpy`: passed. This is a fallback because pytest installation is blocked in this workspace.

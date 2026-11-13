@@ -41,7 +41,8 @@ class UploadLimitsTests(unittest.IsolatedAsyncioTestCase):
             await send({"type": "http.response.start", "status": 204, "headers": []})
             await send({"type": "http.response.body", "body": b""})
 
-        guard = UploadLimitMiddleware(downstream, max_bytes=limit, timeout_seconds=0.03)
+        # Only the timeout case uses a tiny deadline; other cases tolerate slow CI hosts.
+        guard = UploadLimitMiddleware(downstream, max_bytes=limit, timeout_seconds=0.03 if delay else 2)
         with patch("app.upload_limits.SpooledTemporaryFile", spool):
             await guard({"type": "http", "headers": list(headers)}, receive, send)
         assert all(buffer.closed for buffer in buffers)

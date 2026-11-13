@@ -60,7 +60,7 @@ uvicorn app.main:app --reload
 # open http://127.0.0.1:8000
 ~~~
 
-Run tests: `python -m pytest -q`. The merge API is `POST /api/tools/merge`; merge 2–10 PDFs, 8 MB each, 200 pages maximum. Synthetic local tests passed, but **clean-install CI and production security have not been confirmed**.
+Run tests: `python -m pytest -q`. The merge API is `POST /api/tools/merge`; merge 2–10 PDFs, 8 MB each, 200 pages maximum. Raw uploads are limited before multipart parsing. See [CI and contributor checks](docs/CI.md) for matrix tests, coverage, lint, packaging and security scans, and [Implementation Status](docs/IMPLEMENTATION-STATUS.md) for exact verification evidence. **This remains a prototype; production worker isolation is not implemented.**
 
 **Plan before coding more:** [Complete Ordered Checklist](docs/IMPLEMENTATION-CHECKLIST.md) · [Live Implementation Status](docs/IMPLEMENTATION-STATUS.md) · [Known Blockers](docs/IMPLEMENTATION-STATUS.md#blockers-requiring-ownercodex-follow-up).
 
@@ -83,3 +83,4 @@ Read [Contributing](CONTRIBUTING.md), [Security](SECURITY.md), [Code of Conduct]
 ## Documentation index
 
 [Implementation Checklist](docs/IMPLEMENTATION-CHECKLIST.md) · [Implementation Status](docs/IMPLEMENTATION-STATUS.md) · [Prototype](docs/PROTOTYPE.md) · [Start Here](docs/START-HERE.md) · [Vision](docs/PRODUCT-VISION.md) · [Competitive Benchmarks](docs/COMPETITIVE-BENCHMARKS.md) · [Feature Inventory](docs/FEATURE-INVENTORY.md) · [Architecture](docs/ARCHITECTURE.md) · [Reuse vs Build](docs/REUSE-VS-BUILD.md) · [Licenses](docs/LICENSING-AND-DEPENDENCIES.md) · [Roadmap](docs/ROADMAP.md) · [Backlog](docs/IMPLEMENTATION-BACKLOG.md) · [UX](docs/UX-BLUEPRINT.md) · [Quality](docs/QUALITY-AND-TESTING.md) · [API/Data](docs/API-AND-DATA-CONTRACTS.md) · [Operations](docs/OPERATIONS-AND-SECURITY.md) · [Codex](docs/CODEX-PLAYBOOK.md) · [Research Links](docs/RESEARCH-REFERENCES.md) · [Decisions](docs/DECISIONS.md).
+
