@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="description" content="PDF Studio — one workspace for every PDF task. Merge PDFs in our early working prototype."/>
+  <title>PDF Studio — Your documents, one workspace</title>
+  <link rel="stylesheet" href="/static/styles.css"/>
+  <script src="/static/app.js" defer></script>
+</head>
+<body>
+  <header class="site-header shell">
+    <a class="brand" href="/" aria-label="PDF Studio home"><span class="logo-mark" aria-hidden="true">▤</span>pdf<span class="accent">studio</span><small>BETA</small></a>
+    <nav aria-label="Main navigation"><a href="#tools">Tools</a><a href="#workspace">Workspace</a><a href="https://github.com/renoukhan39-bit/pdfstudio" rel="noopener noreferrer" target="_blank">GitHub ↗</a></nav>
+  </header>
+  <main>
+    <section class="hero shell">
+      <div class="hero-copy">
+        <span class="eyebrow">✦ THE START OF SOMETHING BIG</span>
+        <h1>Every PDF task.<br/><em>One brilliant space.</em></h1>
+        <p>Convert, edit and organize documents in one beautiful workspace. We're building a complete PDF platform — starting with a working PDF merge tool today.</p>
+        <div class="hero-buttons"><a class="button primary" href="#workspace">Merge PDFs now →</a><a class="button secondary" href="#tools">Explore tools ↗</a></div>
+        <div class="hero-notes">Free prototype <span>·</span> No account needed <span>·</span> More tools coming</div>
+      </div>
+      <div class="mockup" aria-hidden="true">
+        <div class="mockup-header"><strong>Your workspace</strong><span>PDF Studio</span></div>
+        <div class="mockup-tabs"><b>Organize</b>　 Convert　 Edit</div>
+        <div class="mockup-drop"><div>＋</div><strong>Your files, together.</strong><small>Arrange documents. Download as one.</small></div>
+        <div class="mockup-file"><span class="file-icon">PDF</span><div><strong>chapter-one.pdf</strong><small>8 pages</small></div>⋮⋮</div>
+        <div class="mockup-file"><span class="file-icon violet">PDF</span><div><strong>chapter-two.pdf</strong><small>12 pages</small></div>⋮⋮</div>
+        <div class="mockup-button">Merge 2 PDFs <span>→</span></div>
+      </div>
+    </section>
+    <section id="tools" class="shell tools">
+      <div class="section-heading"><div><span class="kicker">THE TOOLKIT</span><h2>Make every document easier.</h2><p>One working tool today. Our complete roadmap is open to contributors.</p></div><a href="https://github.com/renoukhan39-bit/pdfstudio/blob/main/docs/IMPLEMENTATION-CHECKLIST.md">Full roadmap ↗</a></div>
+      <div class="tools-grid">
+        <a href="#workspace" class="tool-card live"><span class="tool-icon coral">⇉</span><strong>Merge PDF</strong><p>Combine files in your preferred order.</p><small>Working prototype ↗</small></a>
+        <article class="tool-card"><span class="tool-icon lavender">✂</span><strong>Split PDF</strong><p>Separate and extract document pages.</p><small>Planned</small></article>
+        <article class="tool-card"><span class="tool-icon sky">⇣</span><strong>Compress PDF</strong><p>Make documents smaller and easier to share.</p><small>Planned</small></article>
+        <article class="tool-card"><span class="tool-icon mint">✎</span><strong>Edit PDF</strong><p>Professional editing for existing PDF content.</p><small>Engine research</small></article>
+        <article class="tool-card"><span class="tool-icon gold">◈</span><strong>OCR PDF</strong><p>Convert scanned pages into searchable text.</p><small>Planned</small></article>
+        <article class="tool-card"><span class="tool-icon pink">◎</span><strong>Sign & protect</strong><p>Forms, signatures and document security.</p><small>Planned</small></article>
+      </div>
+    </section>
+    <section id="workspace" class="shell workspace">
+      <div class="section-heading"><div><span class="kicker">FIRST WORKING TOOL</span><h2>Merge your PDF files.</h2><p>Choose at least two PDFs, arrange the order, and download one combined document.</p></div><span class="mode-pill">● Server processed · Prototype</span></div>
+      <div class="workbench">
+        <div class="workbench-main">
+          <div class="step">STEP 01 <span>ADD YOUR DOCUMENTS</span></div>
+          <div id="dropzone" class="dropzone">
+            <div class="upload-icon" aria-hidden="true">↑</div>
+            <h3>Drop PDFs here</h3><p>or choose them from your device</p>
+            <label for="fileInput" class="button primary upload-label">Choose PDF files</label>
+            <input type="file" id="fileInput" accept=".pdf,application/pdf" multiple aria-describedby="file-limits"/>
+            <small id="file-limits">2–10 PDFs · Up to 8 MB each · 200 pages total</small>
+          </div>
+          <div id="queue-container" class="queue-container" hidden>
+            <div class="queue-heading"><strong>Selected documents <span id="file-count"></span></strong><button id="clear-files" type="button">Clear all</button></div>
+            <ol id="file-list" aria-label="PDF merge order"></ol>
+            <p class="hint">Use the arrows to change the order. The first file will appear first in the merged PDF.</p>
+          </div>
+        </div>
+        <aside class="workbench-side">
+          <div class="step">STEP 02 <span>MERGE & DOWNLOAD</span></div>
+          <div class="side-art" aria-hidden="true">▧</div>
+          <h3>One file. All your pages.</h3>
+          <p>We'll merge your PDFs in the exact order you choose. Your original files stay on your device.</p>
+          <button class="button primary merge-button" id="merge-button" disabled>Merge PDFs →</button>
+          <p id="merge-status" class="merge-status" role="status" aria-live="polite">Add at least two PDFs to begin.</p>
+          <div class="privacy"><strong>Privacy note</strong><p>Files are sent to this server for processing. The app does not deliberately persist PDFs; upload handling may use temporary disk space. Do not submit sensitive documents to this early prototype.</p></div>
+        </aside>
+      </div>
+    </section>
+    <section class="shell end-banner"><div><span class="kicker">BUILT IN THE OPEN</span><h2>We're just getting started.</h2><p>Explore the architecture and contribute to the next milestone.</p></div><a class="button secondary" href="https://github.com/renoukhan39-bit/pdfstudio/blob/main/CONTRIBUTING.md">Contribute on GitHub ↗</a></section>
+  </main>
+  <footer class="shell footer"><strong>pdf<span class="accent">studio</span></strong><span>Built deliberately. Improved openly.</span><a href="https://github.com/renoukhan39-bit/pdfstudio">Source & documentation ↗</a></footer>
+</body>
+</html>
