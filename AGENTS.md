@@ -3,7 +3,11 @@
 Read this file, [Start Here](docs/START-HERE.md), [Architecture](docs/ARCHITECTURE.md), [Licensing](docs/LICENSING-AND-DEPENDENCIES.md), and [Quality](docs/QUALITY-AND-TESTING.md) before changing code.
 
 ## Mission and scope
-Create an independently branded commercial-quality PDF platform. Compete with Adobe Acrobat in editing depth, Sejda in editing convenience, iLovePDF in tool breadth, and Smallpdf in usability. **Do not claim we are #1 or already feature complete.** A fourteen-tool proof of concept now exists under app/ with tests/. Its tool status is PROTOTYPE, not SHIPPED. Follow docs/IMPLEMENTATION-CHECKLIST.md in order.
+Create an independently branded commercial-quality PDF platform. Compete with Adobe Acrobat in editing depth, Sejda in editing convenience, iLovePDF in tool breadth, and Smallpdf in usability. **Do not claim we are #1 or already feature complete.** A fifteen-tool proof of concept now exists under app/ with tests/. Its tool status is PROTOTYPE, not SHIPPED. Follow docs/IMPLEMENTATION-CHECKLIST.md in order.
+
+## Active scope — strict A–D freeze
+
+Read [docs/ACTIVE-SCOPE.md](docs/ACTIVE-SCOPE.md). Stages A–D only are active. **Do not implement or scaffold Stages E/F**, including AI, subscriptions, billing, teams, accounts, cloud document history and broad automation. Do not import another entire PDF app. Codex/Astra is reserved for narrow blockers and test repairs.
 
 ## Mandatory engineering sequence
 1. Read the repository and identify what already exists before suggesting a rewrite.
@@ -29,7 +33,7 @@ Create an independently branded commercial-quality PDF platform. Compete with Ad
 Read [AI Contributor Guide](docs/AI-CONTRIBUTOR-GUIDE.md). Run `python scripts/check.py` before reporting completion; `--full` adds mutation, build and dependency checks. Never skip failing tests, lower coverage, remove critical test IDs or suppress vulnerability findings to obtain a green result. CI must reject missing reports, fewer than the original 54 tests and missing critical tests. Legitimate test/guard refactors need an explicit rationale and maintainer review. State any unavailable checks honestly. Review settings must require `CI required`; repository files cannot activate that setting themselves.
 
 ## Current implementation and next task
-The core toolkit now has fourteen tools, a shared workspace, raw upload limits, bounded child-process execution and contributor CI. Read docs/CORE-TOOLKIT.md. Read docs/PROTOTYPE.md, docs/CI.md and docs/IMPLEMENTATION-STATUS.md. Next: resolve any CI findings, lock/audit dependencies, then create an isolated Gotenberg 9 adapter spike with output tests. No public deployment until PDF worker isolation and global resource limits are proven.
+The core toolkit now has fifteen prototype tools, a shared workspace, raw upload limits, bounded child-process execution and contributor CI. Read docs/CORE-TOOLKIT.md. Read docs/PROTOTYPE.md, docs/CI.md and docs/IMPLEMENTATION-STATUS.md. Next: resolve any CI findings, lock/audit dependencies, then create an isolated Gotenberg 9 adapter spike with output tests. No public deployment until PDF worker isolation and global resource limits are proven.
 
 ## Decision discipline
 For every engine selection record: capabilities, license, integration effort, maintenance, security, quality, costs and fallback. Use [Decisions](docs/DECISIONS.md). Ask for owner approval on licensing/branding/pricing choices rather than silently choosing them.

@@ -1,4 +1,4 @@
-# Implementation Status and Blockers
+> **2026-11-14 stage B verification:** Gotenberg DOCX-to-PDF passed actual private Docker Compose conversion in [GitHub CI run 43606679093](https://github.com/renoukhan39-bit/pdfstudio/actions/runs/43606679093): synthetic DOCX converted and extracted PDF text verified. UI integration is being tested in this PR. Fifteen prototype tools targeted; E/F frozen per [Active Scope](ACTIVE-SCOPE.md).\n\n# Implementation Status and Blockers
 
 **Updated:** 2026-11-14. This document describes **what exists**, distinct from the goal list.
 
