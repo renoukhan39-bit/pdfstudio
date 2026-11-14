@@ -57,3 +57,11 @@ complete container OS. Add a reviewed lockfile and container-level scanning next
 Original-code licensing and contribution terms still need an owner decision.
 
 Run the browser checks locally with `pip install -e ".[dev,browser]"`, `python -m playwright install chromium`, `docker compose up --build -d --wait`, then `python scripts/browser_smoke.py`. CI uses Ubuntu 24.04 for browser dependency compatibility.
+
+## AI-contributor guardrails
+
+[AI Contributor Guide](AI-CONTRIBUTOR-GUIDE.md) is the shared workflow for coding assistants. `python scripts/check.py` reproduces the core checks. CI additionally validates its own job/coverage/permission contract and runs six deliberate regression probes against temporary source copies. All probes must be rejected by tests.
+
+Every Python matrix job always attempts to produce `reports/ci-feedback.json` and a GitHub job summary, even after pytest fails. Missing reports, fewer than 54 collected/reported tests, removed critical test IDs, skips/xfails and inadequate coverage fail the evidence gate. Test artifacts contain the JSON and Markdown feedback alongside JUnit and coverage XML. No automatic code edits, PR comments, advisory exclusions or merges are performed.
+
+CODEOWNERS requests review of sensitive configuration and tests when GitHub applies it. Administrators still need to require code-owner review and `CI required` in main's ruleset. These are regression/review aids, not proof that arbitrary AI changes are correct or tamper-proof.

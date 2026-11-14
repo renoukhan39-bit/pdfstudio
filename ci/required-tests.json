@@ -1,0 +1,10 @@
+[
+  "tests/test_merge.py::test_merges_in_requested_order_and_verifies_pages",
+  "tests/test_merge.py::test_merge_preserves_extractable_text_and_order",
+  "tests/test_upload_limits.py::UploadLimitsTests::test_declared_oversize_rejected_without_reading",
+  "tests/test_upload_limits.py::UploadLimitsTests::test_chunked_oversize_never_reaches_parser",
+  "tests/test_toolkit.py::ToolkitTests::test_aes256_protect_and_authorized_unlock",
+  "tests/test_release.py::ReleaseTests::test_crop_changes_viewport_not_media_or_content",
+  "tests/test_release.py::ReleaseTests::test_remote_rejects_errors_and_never_falls_back",
+  "tests/test_release.py::CapacityTests::test_capacity_rejects_without_reading"
+]

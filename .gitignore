@@ -33,3 +33,5 @@ private/
 .DS_Store
 # Do not commit customer document samples or secrets.
 
+
+.ci-mutations-*/

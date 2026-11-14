@@ -1,0 +1,13 @@
+# Activate required code-owner review in the main-branch ruleset for enforcement.
+/AGENTS.md @renoukhan39-bit
+/CLAUDE.md @renoukhan39-bit
+/GEMINI.md @renoukhan39-bit
+/.github/ @renoukhan39-bit
+/ci/ @renoukhan39-bit
+/scripts/ci_*.py @renoukhan39-bit
+/scripts/check*.py @renoukhan39-bit
+/tests/ @renoukhan39-bit
+/pyproject.toml @renoukhan39-bit
+/compose.yaml @renoukhan39-bit
+/Dockerfile @renoukhan39-bit
+/docs/AI-CONTRIBUTOR-GUIDE.md @renoukhan39-bit

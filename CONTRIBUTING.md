@@ -25,6 +25,9 @@ python -m pytest -q
 
 Detailed scope, API and security limitations: [Prototype](docs/PROTOTYPE.md). Work through the [ordered checklist](docs/IMPLEMENTATION-CHECKLIST.md).
 
+## AI-assisted contributions
+Any coding assistant should start with [AI Contributor Guide](docs/AI-CONTRIBUTOR-GUIDE.md). Run `python scripts/check.py` for core local checks or `python scripts/check.py --full` for mutation probes, build and vulnerability audit. Read job summaries and `ci-feedback.json` to diagnose failures. Treat a failed check as evidence to investigate, never as a reason to weaken the check.
+
 ## Required automated checks
 
 Read [CI and failure recovery](docs/CI.md). Every PR runs lint, JavaScript syntax,

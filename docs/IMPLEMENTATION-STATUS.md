@@ -2,6 +2,10 @@
 
 **Updated:** 2026-11-14. This document describes **what exists**, distinct from the goal list.
 
+## Contributor automation update
+
+Added one local check command, canonical AI contributor instructions with Copilot/Claude/Gemini entry points, CI configuration checks, critical-test collection tracking, fail-closed report/coverage checks, structured failure summaries, and six mutation probes in disposable copies. New tests verify that the guards reject missing jobs, reduced coverage, skipped tests, malformed evidence and workflow-command injection. PyYAML 6.0.3 (MIT) is a development-only dependency. CODEOWNERS marks sensitive paths; required owner review/branch enforcement still requires administrator settings. The latest GitHub CI run is the evidence for full matrix/mutation/browser verification; local guard tests and syntax checks are available in this workspace.
+
 ## Current release-hardening implementation
 
 Fourteen tools now have backend implementations and website controls. Added page numbering, printable-ASCII text watermarks and visual crop (explicitly not secure redaction), using ReportLab 4.4.9 (BSD) and Pillow 13.0.0 (MIT-CMU). [Deployment guide](DEPLOYMENT.md) describes a separate internal worker with read-only filesystem, no public port, no internet egress, non-root identity and CPU/memory/PID limits. API and worker each bound active uploads to two. The HTTP adapter disables proxies and redirects and never falls back to local execution if a configured worker fails.

@@ -14,3 +14,5 @@ PDF Studio owns only its original code; upstream dependencies retain their own l
 This register is not a replacement for packaged LICENSE/NOTICE files or a complete transitive/container licensing audit. CI exports a CycloneDX package inventory. Cryptography's wheels can bundle OpenSSL and retain its own license notices. No AGPL/proprietary editor source has been imported in this implementation.
 
 Added processing dependencies: ReportLab 4.4.9 (BSD license; https://www.reportlab.com/opensource/) and Pillow 13.0.0 (MIT-CMU; https://github.com/python-pillow/Pillow). Built-in Helvetica is used for printable ASCII overlays; no third-party font files were copied. Browser test dependency Playwright 1.58.0 uses Apache-2.0; downloaded Chromium has separate bundled licenses. Preserve upstream notices in redistributed artifacts.
+
+Development-only CI parser: PyYAML 6.0.3 (MIT; https://github.com/yaml/pyyaml). No runtime/product-license change accompanies the contributor guardrails.

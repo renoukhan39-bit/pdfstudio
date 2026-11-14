@@ -3,7 +3,7 @@
 Read this file, [Start Here](docs/START-HERE.md), [Architecture](docs/ARCHITECTURE.md), [Licensing](docs/LICENSING-AND-DEPENDENCIES.md), and [Quality](docs/QUALITY-AND-TESTING.md) before changing code.
 
 ## Mission and scope
-Create an independently branded commercial-quality PDF platform. Compete with Adobe Acrobat in editing depth, Sejda in editing convenience, iLovePDF in tool breadth, and Smallpdf in usability. **Do not claim we are #1 or already feature complete.** An fourteen-tool proof of concept now exists under app/ with tests/. Its tool status is PROTOTYPE, not SHIPPED. Follow docs/IMPLEMENTATION-CHECKLIST.md in order.
+Create an independently branded commercial-quality PDF platform. Compete with Adobe Acrobat in editing depth, Sejda in editing convenience, iLovePDF in tool breadth, and Smallpdf in usability. **Do not claim we are #1 or already feature complete.** A fourteen-tool proof of concept now exists under app/ with tests/. Its tool status is PROTOTYPE, not SHIPPED. Follow docs/IMPLEMENTATION-CHECKLIST.md in order.
 
 ## Mandatory engineering sequence
 1. Read the repository and identify what already exists before suggesting a rewrite.
@@ -24,6 +24,9 @@ Create an independently branded commercial-quality PDF platform. Compete with Ad
 - Treat PDFs as untrusted input; prevent SSRF, path traversal, resource exhaustion and arbitrary file execution; run workers with strict isolation.
 - No credentials, keys, customer data, sample IDs or confidential PDFs in commits, logs, issues, or AI prompts.
 - No feature can be marked shipped without end-to-end output verification and security acceptance where applicable.
+
+## Mandatory contributor checks
+Read [AI Contributor Guide](docs/AI-CONTRIBUTOR-GUIDE.md). Run `python scripts/check.py` before reporting completion; `--full` adds mutation, build and dependency checks. Never skip failing tests, lower coverage, remove critical test IDs or suppress vulnerability findings to obtain a green result. CI must reject missing reports, fewer than the original 54 tests and missing critical tests. Legitimate test/guard refactors need an explicit rationale and maintainer review. State any unavailable checks honestly. Review settings must require `CI required`; repository files cannot activate that setting themselves.
 
 ## Current implementation and next task
 The core toolkit now has fourteen tools, a shared workspace, raw upload limits, bounded child-process execution and contributor CI. Read docs/CORE-TOOLKIT.md. Read docs/PROTOTYPE.md, docs/CI.md and docs/IMPLEMENTATION-STATUS.md. Next: resolve any CI findings, lock/audit dependencies, then create an isolated Gotenberg 9 adapter spike with output tests. No public deployment until PDF worker isolation and global resource limits are proven.
