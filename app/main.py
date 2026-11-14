@@ -1,18 +1,21 @@
 """PDF Studio API and small same-origin frontend, first functional milestone."""
 from pathlib import Path
+import json
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
+from starlette.concurrency import run_in_threadpool
 
 from app.pdf_engine import (
     MAX_FILE_BYTES,
     MAX_FILES,
     MAX_TOTAL_BYTES,
     MergeError,
-    merge_pdf_bytes,
 )
 from app.upload_limits import UploadLimitMiddleware
+from app.toolkit import TOOLS, TOOL_SLUGS
+from app.worker import WorkerBusy, execute
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 app = FastAPI(title="PDF Studio", version="0.1.0", docs_url=None, redoc_url=None)
@@ -47,14 +50,8 @@ async def health():
 
 @app.get("/api/tools")
 async def available_tools():
-    return {
-        "tools": [
-            {"id": "OP-01", "slug": "merge", "name": "Merge PDF", "status": "prototype", "execution": "server"},
-            {"id": "OP-02", "slug": "split", "name": "Split PDF", "status": "planned"},
-            {"id": "CV-12", "slug": "compress", "name": "Compress PDF", "status": "planned"},
-            {"id": "ED-03", "slug": "edit-text", "name": "Edit existing text", "status": "research"},
-        ]
-    }
+    return {"tools": [{"id": id_, "slug": slug, "name": name, "description": description,
+                       "status": "prototype", "execution": "server"} for id_, slug, name, description in TOOLS]}
 
 
 @app.post("/api/tools/merge", response_class=Response)
@@ -77,16 +74,48 @@ async def merge(files: list[UploadFile] = File(...)):
             await upload.close()
 
     try:
-        result, pages = merge_pdf_bytes(payloads)
+        result = await run_in_threadpool(execute, "merge", payloads, {})
+    except WorkerBusy as exc:
+        raise HTTPException(status_code=503, detail=str(exc), headers={"Retry-After": "5"}) from exc
     except MergeError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     return Response(
-        content=result,
+        content=result.data,
         media_type="application/pdf",
         headers={
             "Content-Disposition": 'attachment; filename="pdfstudio-merged.pdf"',
-            "X-PDF-Pages": str(pages),
+            "X-PDF-Pages": str(result.pages),
         },
     )
+
+
+@app.post("/api/tools/{operation}", response_class=Response)
+async def process(operation: str, file: UploadFile = File(...), options: str = Form("{}")):
+    try:
+        if operation not in TOOL_SLUGS or operation == "merge":
+            raise HTTPException(status_code=404, detail="Unknown PDF tool.")
+        if len(options) > 8192:
+            raise HTTPException(status_code=422, detail="Options exceed the size limit.")
+        try:
+            settings = json.loads(options)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail="Options must be valid JSON.") from exc
+        if not isinstance(settings, dict):
+            raise HTTPException(status_code=422, detail="Options must be a JSON object.")
+        data = await file.read(MAX_FILE_BYTES + 1)
+        if not data or len(data) > MAX_FILE_BYTES:
+            raise HTTPException(status_code=413, detail="Choose a nonempty PDF no larger than 8 MB.")
+    finally:
+        await file.close()
+    try:
+        result = await run_in_threadpool(execute, operation, [data], settings)
+    except WorkerBusy as exc:
+        raise HTTPException(status_code=503, detail=str(exc), headers={"Retry-After": "5"}) from exc
+    except MergeError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return Response(result.data, media_type=result.media_type, headers={
+        "Content-Disposition": f'attachment; filename="{result.filename}"',
+        "X-PDF-Pages": str(result.pages), "X-PDF-Notice": result.note,
+    })
 

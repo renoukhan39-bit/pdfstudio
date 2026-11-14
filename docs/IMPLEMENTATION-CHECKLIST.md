@@ -19,6 +19,8 @@
 
 ## Phase 1 — Working online toolkit
 
+Progress 2026-11-14: OP-01–06, OP-21, CV-10/CV-12 and SC-01/SC-02 have prototype implementations and tests; see [Core Toolkit](CORE-TOOLKIT.md). Checkboxes remain release acceptance gates, not just code-presence markers.
+
 - [ ] Build accessible responsive homepage and discovery/navigation.
 - [ ] Build reliable multiple-file upload, ordering, validation and download UX.
 - [ ] OP-01 Implement merge PDF, page-order preservation and output checks.

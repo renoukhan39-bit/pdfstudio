@@ -2,6 +2,16 @@
 
 **Updated:** 2026-11-14. This document describes **what exists**, distinct from the goal list.
 
+## Current core-toolkit implementation
+
+See [Core Toolkit](CORE-TOOLKIT.md). Eleven tools now have website controls and API implementations. New synthetic tests cover page selection, split ZIPs, page order, rotation, compression, metadata, AES-256 protection/unlock, malformed requests, process deadlines and capacity. PDF processing now runs in a child process with two concurrent slots per API process, a 25-second wall deadline, and Linux CPU/address-space limits. This is resource separation, not a complete security sandbox.
+
+Updated dependencies: FastAPI 0.141.1, Starlette 1.6.0, python-multipart 0.0.32 and pytest 9.0.3 address the specific advisories from the previous run. Added cryptography 50.0.0 for pypdf AES encryption (Apache-2.0 OR BSD-3-Clause). No proprietary editor or incompatible copyleft library was imported. The latest commit's GitHub Actions result is the authoritative clean-install/audit check; historical failures below describe the earlier pins.
+
+Local tests use preinstalled pypdf 6.21.4; CI uses pinned pypdf 7.0.1. Browser interaction QA, full fidelity corpus, network/filesystem worker isolation and global ingress quotas remain outstanding. The next work is to verify latest CI, add browser end-to-end coverage, isolate worker filesystem/network, then integrate audited OCR/conversion engines. Native text editing, digital signatures, secure redaction, accounts, cloud storage, billing and AI remain unimplemented; no completion claim applies to the entire roadmap.
+
+## Earlier implementation evidence
+
 | Workstream | Actual status | Evidence |
 | --- | --- | --- |
 | Product requirements / architecture | Documented | README.md and docs/ |

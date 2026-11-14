@@ -1,3 +1,5 @@
+> Updated: the prototype now includes eleven tools. See [Core Toolkit](CORE-TOOLKIT.md) for current functionality, routes and limits. The historical merge setup below still works.
+
 # Running the First PDF Studio Prototype
 
 **What works:** locally served homepage and **Merge PDF** only. Other tools are roadmap items, not functioning links. **Do not deploy to the open internet yet**: in-process PDF parsing is not isolated against hostile inputs.

@@ -8,7 +8,7 @@
 - **Product:** A competitive, privacy-focused PDF website and eventual multi-platform software system.
 - **Commercial goal:** Build an independent, sustainable competitor to Adobe Acrobat, iLovePDF, Sejda and Smallpdf.
 - **Technical principle:** One modular monorepo and one branded UX; compose best-fit PDF engines instead of merging multiple entire applications.
-- **Truth about current status:** A **merge-only working prototype** now exists with a FastAPI backend and a basic frontend; it is not security-hardened or deployed. See [Prototype](PROTOTYPE.md) and [Implementation Status](IMPLEMENTATION-STATUS.md).
+- **Truth about current status:** An **eleven-tool working prototype** now exists with a FastAPI backend and a basic frontend; it is not security-hardened or deployed. See [Prototype](PROTOTYPE.md) and [Implementation Status](IMPLEMENTATION-STATUS.md).
 
 ## Where decisions are written
 1. [Product Vision](PRODUCT-VISION.md) — positioning, audience, principles and success criteria.

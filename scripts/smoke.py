@@ -24,6 +24,9 @@ def main():
         response = client.post("/api/tools/merge", files=files)
         assert response.status_code == 200, response.text
         assert [int(p.mediabox.width) for p in PdfReader(BytesIO(response.content)).pages] == [200, 400]
+        extracted = client.post("/api/tools/extract", files={"file": ("merged.pdf", response.content)}, data={"options": '{"pages":"2"}'})
+        assert extracted.status_code == 200, extracted.text
+        assert int(PdfReader(BytesIO(extracted.content)).pages[0].mediabox.width) == 400
     print("Installed app: health, homepage, static assets, PDF merge and output order passed.")
 
 

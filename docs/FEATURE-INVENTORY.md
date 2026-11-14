@@ -1,6 +1,6 @@
 # PDF Studio Feature Inventory and Target Matrix
 
-**Status disclaimer:** This is an aspirational **product backlog**, not an assertion that these tools are built. With the exception of **OP-01 (merge PDF), which has a locally tested early PROTOTYPE**, all items remain **PLANNED**. OP-01 is **not yet SHIPPED**. The feature ID remains stable as we implement. P0 = first launch candidate; P1 = competitive expansion; P2 = later/enterprise/advanced.
+**Status disclaimer:** This is a product backlog. OP-01 through OP-06, OP-21, CV-10, CV-12, SC-01 and SC-02 now have working prototype APIs and website controls. All other entries remain planned or research. No feature is marked SHIPPED; see [Core Toolkit](CORE-TOOLKIT.md) for supported behavior and limits.
 
 After implementation, record: owner, engine adapter, supported platforms, limitations, fixture IDs, test evidence, status (PLANNED / IN_PROGRESS / TESTED / SHIPPED).
 
@@ -129,3 +129,4 @@ An entry may be SHIPPED only after end-to-end integration tests, output integrit
 
 ## Notes
 This catalog intentionally aggregates iLovePDF-style utilities, Sejda-style editing, Acrobat-style professional workflows and original workspace/AI capabilities. Competitor names describe benchmark categories, not licensed or endorsed integrations.
+
