@@ -42,12 +42,14 @@
     if (slug !== "merge" && files.length > 1) { files = files.slice(0, 1); message("Kept the first PDF for this single-file tool."); }
     else message("Add files, review your options, then process.");
     $("tool-heading").textContent = tool().name; $("tool-description").textContent = tool().description;
-    $("pages-group").hidden = !["split", "extract", "delete", "reorder", "rotate", "text"].includes(slug);
+    $("pages-group").hidden = !["split", "extract", "delete", "reorder", "rotate", "text", "page-numbers", "watermark", "crop"].includes(slug);
     $("angle-group").hidden = slug !== "rotate";
     $("password-group").hidden = !["protect", "unlock"].includes(slug);
     $("metadata-group").hidden = slug !== "metadata";
+    $("watermark-group").hidden = slug !== "watermark";
+    $("crop-group").hidden = slug !== "crop";
     $("page-selection").value = ""; $("pdf-password").value = "";
-    $("page-help").textContent = slug === "split" ? "Leave blank for one PDF per page, or enter groups: 1-3;4-6." : slug === "reorder" ? "Include every page once, for example 3,1,2." : ["rotate", "text"].includes(slug) ? "Leave blank for all pages, or use 1,3-5." : "Required: use 1,3-5. Each page can appear once.";
+    $("page-help").textContent = slug === "split" ? "Leave blank for one PDF per page, or enter groups: 1-3;4-6." : slug === "reorder" ? "Include every page once, for example 3,1,2." : ["rotate", "text", "page-numbers", "watermark", "crop"].includes(slug) ? "Leave blank for all pages, or use 1,3-5." : "Required: use 1,3-5. Each page can appear once.";
     render();
   }
   function add(incoming) {
@@ -73,6 +75,8 @@
     if (run.disabled) return;
     const slug = select.value, options = {}, form = new FormData();
     if (!$("pages-group").hidden) options.pages = $("page-selection").value;
+    if (slug === "watermark") options.text = $("watermark-text").value;
+    if (slug === "crop") options.margin = $("crop-margin").value;
     if (slug === "rotate") options.angle = $("rotation").value;
     if (["protect", "unlock"].includes(slug)) options.password = $("pdf-password").value;
     if (slug === "metadata") ["title", "author", "subject", "keywords"].forEach(key => { options[key] = $(`pdf-${key}`).value; });

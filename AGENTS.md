@@ -3,7 +3,7 @@
 Read this file, [Start Here](docs/START-HERE.md), [Architecture](docs/ARCHITECTURE.md), [Licensing](docs/LICENSING-AND-DEPENDENCIES.md), and [Quality](docs/QUALITY-AND-TESTING.md) before changing code.
 
 ## Mission and scope
-Create an independently branded commercial-quality PDF platform. Compete with Adobe Acrobat in editing depth, Sejda in editing convenience, iLovePDF in tool breadth, and Smallpdf in usability. **Do not claim we are #1 or already feature complete.** An eleven-tool proof of concept now exists under app/ with tests/. Its tool status is PROTOTYPE, not SHIPPED. Follow docs/IMPLEMENTATION-CHECKLIST.md in order.
+Create an independently branded commercial-quality PDF platform. Compete with Adobe Acrobat in editing depth, Sejda in editing convenience, iLovePDF in tool breadth, and Smallpdf in usability. **Do not claim we are #1 or already feature complete.** An fourteen-tool proof of concept now exists under app/ with tests/. Its tool status is PROTOTYPE, not SHIPPED. Follow docs/IMPLEMENTATION-CHECKLIST.md in order.
 
 ## Mandatory engineering sequence
 1. Read the repository and identify what already exists before suggesting a rewrite.
@@ -26,7 +26,7 @@ Create an independently branded commercial-quality PDF platform. Compete with Ad
 - No feature can be marked shipped without end-to-end output verification and security acceptance where applicable.
 
 ## Current implementation and next task
-The core toolkit now has eleven tools, a shared workspace, raw upload limits, bounded child-process execution and contributor CI. Read docs/CORE-TOOLKIT.md. Read docs/PROTOTYPE.md, docs/CI.md and docs/IMPLEMENTATION-STATUS.md. Next: resolve any CI findings, lock/audit dependencies, then create an isolated Gotenberg 9 adapter spike with output tests. No public deployment until PDF worker isolation and global resource limits are proven.
+The core toolkit now has fourteen tools, a shared workspace, raw upload limits, bounded child-process execution and contributor CI. Read docs/CORE-TOOLKIT.md. Read docs/PROTOTYPE.md, docs/CI.md and docs/IMPLEMENTATION-STATUS.md. Next: resolve any CI findings, lock/audit dependencies, then create an isolated Gotenberg 9 adapter spike with output tests. No public deployment until PDF worker isolation and global resource limits are proven.
 
 ## Decision discipline
 For every engine selection record: capabilities, license, integration effort, maintenance, security, quality, costs and fallback. Use [Decisions](docs/DECISIONS.md). Ask for owner approval on licensing/branding/pricing choices rather than silently choosing them.

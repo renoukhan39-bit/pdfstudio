@@ -1,0 +1,44 @@
+name: pdfstudio
+services:
+  api:
+    build: .
+    image: pdfstudio:local
+    environment:
+      PDFSTUDIO_WORKER_URL: http://worker:8001
+      PYTHONDONTWRITEBYTECODE: '1'
+    ports:
+      - '127.0.0.1:8000:8000'
+    networks: [frontend, processing]
+    depends_on:
+      worker:
+        condition: service_healthy
+    read_only: true
+    tmpfs: ['/tmp:size=256m,mode=1777,noexec,nosuid']
+    cap_drop: [ALL]
+    security_opt: ['no-new-privileges:true']
+    pids_limit: 64
+    mem_limit: 1g
+    cpus: 1.0
+  worker:
+    build: .
+    image: pdfstudio:local
+    command: ['uvicorn', 'app.worker_service:app', '--host', '0.0.0.0', '--port', '8001', '--no-access-log']
+    environment:
+      PYTHONDONTWRITEBYTECODE: '1'
+    networks: [processing]
+    read_only: true
+    tmpfs: ['/tmp:size=192m,mode=1777,noexec,nosuid']
+    cap_drop: [ALL]
+    security_opt: ['no-new-privileges:true']
+    pids_limit: 64
+    mem_limit: 2g
+    cpus: 2.0
+    healthcheck:
+      test: ['CMD', 'python', '-c', "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/health', timeout=2)"]
+      interval: 3s
+      timeout: 3s
+      retries: 15
+networks:
+  frontend: {}
+  processing:
+    internal: true

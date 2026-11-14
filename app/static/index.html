@@ -20,7 +20,7 @@
         <h1>Every PDF task.<br/><em>One brilliant space.</em></h1>
         <p>Merge, split, organize, compress and protect your PDFs. Choose a tool, upload your documents and download the result.</p>
         <div class="hero-buttons"><a class="button primary" href="#workspace">Open workspace →</a><a class="button secondary" href="#tools">Explore tools ↗</a></div>
-        <div class="hero-notes">Free prototype <span>·</span> No account needed <span>·</span> 11 working tools</div>
+        <div class="hero-notes">Free prototype <span>·</span> No account needed <span>·</span> 14 working tools</div>
       </div>
       <div class="mockup" aria-hidden="true">
         <div class="mockup-header"><strong>Your workspace</strong><span>PDF Studio</span></div>
@@ -32,7 +32,7 @@
       </div>
     </section>
     <section id="tools" class="shell tools">
-      <div class="section-heading"><div><span class="kicker">THE TOOLKIT</span><h2>Make every document easier.</h2><p>Eleven practical PDF tools. Advanced editing, OCR and signatures remain on the roadmap.</p></div><a href="https://github.com/renoukhan39-bit/pdfstudio/blob/main/docs/IMPLEMENTATION-CHECKLIST.md">Full roadmap ↗</a></div>
+      <div class="section-heading"><div><span class="kicker">THE TOOLKIT</span><h2>Make every document easier.</h2><p>Fourteen practical PDF tools. Advanced editing, OCR and signatures remain on the roadmap.</p></div><a href="https://github.com/renoukhan39-bit/pdfstudio/blob/main/docs/IMPLEMENTATION-CHECKLIST.md">Full roadmap ↗</a></div>
       <div class="tools-grid" id="tool-grid" aria-label="Available PDF tools"></div>
     </section>
     <section id="workspace" class="shell workspace">
@@ -59,6 +59,8 @@
           <h3>Make it your document.</h3>
           <p>Your source files remain unchanged. All tools process files on this server.</p>
           <div id="options-panel">
+            <div id="watermark-group" hidden><label for="watermark-text">Watermark text</label><input id="watermark-text" maxlength="120" placeholder="CONFIDENTIAL"/><small>Printable English/ASCII text in this version.</small></div>
+            <div id="crop-group" hidden><label for="crop-margin">Margin to trim (PDF points)</label><input id="crop-margin" type="number" min="0" max="500" value="24"/><small>72 points = 1 inch. Visual crop only; hidden content remains recoverable. This is not secure redaction.</small></div>
             <div id="pages-group" hidden><label for="page-selection">Pages or groups</label><input id="page-selection" placeholder="1,3-5" maxlength="2000"/><small id="page-help"></small></div>
             <div id="angle-group" hidden><label for="rotation">Clockwise rotation</label><select id="rotation"><option>90</option><option>180</option><option>270</option></select></div>
             <div id="password-group" hidden><label for="pdf-password">PDF password</label><input id="pdf-password" type="password" maxlength="256" autocomplete="off"/><small>Use only documents you are authorized to process.</small></div>

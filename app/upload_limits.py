@@ -2,6 +2,7 @@
 
 import asyncio
 from tempfile import SpooledTemporaryFile
+from threading import BoundedSemaphore
 
 from starlette.concurrency import run_in_threadpool
 from starlette.responses import JSONResponse
@@ -25,12 +26,22 @@ class UploadLimitMiddleware:
         self.app = app
         self.max_bytes = max_bytes
         self.timeout_seconds = timeout_seconds
+        self.slots = BoundedSemaphore(2)
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send):
-        if scope["type"] != "http":
+        if scope['type'] != 'http':
             await self.app(scope, receive, send)
             return
+        if not self.slots.acquire(blocking=False):
+            await JSONResponse({'detail': 'Upload capacity is busy. Try again shortly.'}, status_code=503,
+                               headers={'Retry-After': '5'})(scope, receive, send)
+            return
+        try:
+            await self.handle(scope, receive, send)
+        finally:
+            self.slots.release()
 
+    async def handle(self, scope: Scope, receive: Receive, send: Send):
         async def reject(status, detail):
             await JSONResponse({"detail": detail}, status_code=status)(scope, receive, send)
 

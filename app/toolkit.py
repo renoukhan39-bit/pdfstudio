@@ -23,6 +23,9 @@ TOOLS = [
     ("CV-10", "text", "PDF to text", "Extract existing text; scanned images need OCR."),
     ("SC-01", "protect", "Protect PDF", "Encrypt with an AES-256 password."),
     ("SC-02", "unlock", "Unlock PDF", "Remove encryption using a password you know."),
+    ("OP-16", "page-numbers", "Page numbers", "Add page numbers to selected pages."),
+    ("OP-18", "watermark", "Text watermark", "Add a translucent text watermark."),
+    ("OP-07", "crop", "Crop PDF", "Trim visible margins; content remains recoverable."),
 ]
 TOOL_SLUGS = {tool[1] for tool in TOOLS}
 
@@ -102,7 +105,7 @@ def process_tool(operation: str, documents: list[bytes], options: dict) -> ToolR
         raise MergeError("Unknown PDF operation.")
     if not isinstance(options, dict) or len(json.dumps(options)) > 8192:
         raise MergeError("Invalid or oversized options.")
-    allowed = {"pages", "angle", "password", "title", "author", "subject", "keywords"}
+    allowed = {"pages", "angle", "password", "title", "author", "subject", "keywords", "text", "margin"}
     if set(options) - allowed:
         raise MergeError("Unsupported option.")
     if any(not isinstance(v, str) or len(v) > 2000 for v in options.values()):
@@ -163,7 +166,12 @@ def process_tool(operation: str, documents: list[bytes], options: dict) -> ToolR
         with PdfWriter() as writer:
             writer.clone_document_from_reader(reader)
             note = ""
-            if operation == "rotate":
+            if operation in {"page-numbers", "watermark", "crop"}:
+                from app.page_decorations import decorate
+                decorate(writer, operation, page_indices(selection, count, default_all=True), options)
+                if operation == "crop":
+                    note = "Visual crop only: hidden content remains recoverable. This is not secure redaction."
+            elif operation == "rotate":
                 angle = options.get("angle", "90")
                 if angle not in {"90", "180", "270"}:
                     raise MergeError("Choose 90, 180 or 270 degrees.")

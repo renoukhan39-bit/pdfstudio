@@ -1,6 +1,6 @@
 # PDF Studio Feature Inventory and Target Matrix
 
-**Status disclaimer:** This is a product backlog. OP-01 through OP-06, OP-21, CV-10, CV-12, SC-01 and SC-02 now have working prototype APIs and website controls. All other entries remain planned or research. No feature is marked SHIPPED; see [Core Toolkit](CORE-TOOLKIT.md) for supported behavior and limits.
+**Status disclaimer:** This is a product backlog. OP-01 through OP-07, OP-16, OP-18, OP-21, CV-10, CV-12, SC-01 and SC-02 now have working prototype APIs and website controls. All other entries remain planned or research. No feature is marked SHIPPED; see [Core Toolkit](CORE-TOOLKIT.md) for supported behavior and limits.
 
 After implementation, record: owner, engine adapter, supported platforms, limitations, fixture IDs, test evidence, status (PLANNED / IN_PROGRESS / TESTED / SHIPPED).
 

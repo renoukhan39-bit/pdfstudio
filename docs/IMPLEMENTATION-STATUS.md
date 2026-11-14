@@ -2,6 +2,14 @@
 
 **Updated:** 2026-11-14. This document describes **what exists**, distinct from the goal list.
 
+## Current release-hardening implementation
+
+Fourteen tools now have backend implementations and website controls. Added page numbering, printable-ASCII text watermarks and visual crop (explicitly not secure redaction), using ReportLab 4.4.9 (BSD) and Pillow 13.0.0 (MIT-CMU). [Deployment guide](DEPLOYMENT.md) describes a separate internal worker with read-only filesystem, no public port, no internet egress, non-root identity and CPU/memory/PID limits. API and worker each bound active uploads to two. The HTTP adapter disables proxies and redirects and never falls back to local execution if a configured worker fails.
+
+CI now includes a real Chromium upload → merge → reuse → extract → number → download journey with reopened PDF assertions, error recovery and mobile-width checking. It runs against Compose's isolated worker, verifies read-only/non-root/no-egress boundaries and retains browser traces/screenshots. Existing matrix, coverage and dependency checks remain required. The exact latest run in GitHub Actions is the final verification evidence; browser and Docker binaries were not run locally in this restricted workspace.
+
+The original full roadmap is **not complete**. Native editing, OCR, Office/image conversion, secure redaction, certificate signing, accounts, storage, billing and AI remain open. No public deployment was performed. TLS, authentication/per-user quotas, final license/contribution terms, complete PDF fidelity/accessibility review and container-image vulnerability scanning remain release work. See DEPLOYMENT.md for current trust boundaries.
+
 ## Current core-toolkit implementation
 
 See [Core Toolkit](CORE-TOOLKIT.md). Eleven tools now have website controls and API implementations. New synthetic tests cover page selection, split ZIPs, page order, rotation, compression, metadata, AES-256 protection/unlock, malformed requests, process deadlines and capacity. PDF processing now runs in a child process with two concurrent slots per API process, a 25-second wall deadline, and Linux CPU/address-space limits. This is resource separation, not a complete security sandbox.

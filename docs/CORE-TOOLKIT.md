@@ -1,6 +1,6 @@
 # Core PDF toolkit
 
-The website and API now expose eleven working tools. This is an expanded local-development prototype, not the complete Acrobat/Sejda roadmap or a publicly hardened service.
+The website and API now expose fourteen working tools. This is an expanded local-development prototype, not the complete Acrobat/Sejda roadmap or a publicly hardened service.
 
 | Tool | API | Options and output |
 | --- | --- | --- |
@@ -49,3 +49,15 @@ Native text editing, OCR, Office conversions, image rendering, secure redaction,
 `python -m pytest -q --cov=app --cov-branch --cov-report=term-missing --cov-fail-under=85`
 
 The same command runs in GitHub Actions on Python 3.11, 3.12 and 3.13. A failed assertion, missing coverage, dependency advisory, packaging failure or container failure fails `CI required`. No advisory suppression or weaker coverage threshold was added.
+
+## Added page tools
+
+- POST `/api/tools/page-numbers`: optional `pages`; printed `page / total` at the visible footer.
+- POST `/api/tools/watermark`: `text` (1–120 printable ASCII characters), optional `pages`; translucent diagonal overlay.
+- POST `/api/tools/crop`: `margin` in PDF points (0–500), optional `pages`; shrinks the crop box equally on all sides. Hidden content is retained and recoverable; never use cropping as redaction.
+
+All use multipart `file` and JSON `options` like other tools. Numbering and watermarks are positioned relative to the visible crop box, including rotated/cropped pages. Crop and overlays can invalidate signatures.
+
+## Isolated development deployment
+
+Use `docker compose up --build -d --wait` and open http://127.0.0.1:8000. This runs a dedicated worker with internal networking and filesystem/resource restrictions. Direct `uvicorn app.main:app` retains local child-process mode; use it only for development. See [Deployment](DEPLOYMENT.md). Active raw uploads are limited to two per service process; excess requests receive 503 before parsing.
