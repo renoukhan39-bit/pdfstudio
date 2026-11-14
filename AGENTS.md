@@ -5,6 +5,10 @@ Read this file, [Start Here](docs/START-HERE.md), [Architecture](docs/ARCHITECTU
 ## Mission and scope
 Create an independently branded commercial-quality PDF platform. Compete with Adobe Acrobat in editing depth, Sejda in editing convenience, iLovePDF in tool breadth, and Smallpdf in usability. **Do not claim we are #1 or already feature complete.** A fourteen-tool proof of concept now exists under app/ with tests/. Its tool status is PROTOTYPE, not SHIPPED. Follow docs/IMPLEMENTATION-CHECKLIST.md in order.
 
+## Active scope — strict A–D freeze
+
+Read [docs/ACTIVE-SCOPE.md](docs/ACTIVE-SCOPE.md). Stages A–D only are active. **Do not implement or scaffold Stages E/F**, including AI, subscriptions, billing, teams, accounts, cloud document history and broad automation. Do not import another entire PDF app. Codex/Astra is reserved for narrow blockers and test repairs.
+
 ## Mandatory engineering sequence
 1. Read the repository and identify what already exists before suggesting a rewrite.
 2. Produce a short scope, files-to-change list, license risk check and acceptance tests **before implementation**.

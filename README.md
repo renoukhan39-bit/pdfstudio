@@ -20,6 +20,12 @@
 | Project manager | [Roadmap](docs/ROADMAP.md) and [Implementation Backlog](docs/IMPLEMENTATION-BACKLOG.md) |
 | Codex contributor | [AGENTS.md](AGENTS.md) and [Codex Playbook](docs/CODEX-PLAYBOOK.md) |
 
+## Current work scope: A–D only
+
+Stage E/F implementation is **on hold**. We are preserving the existing 14-tool prototype and selectively integrating tested public engines. [Active Scope and Upstream Decisions](docs/ACTIVE-SCOPE.md).
+
+An **experimental internal DOCX-to-PDF adapter** is under development for Gotenberg 9. It is deliberately not counted as a 15th completed tool until actual Compose and PDF-output checks pass.
+
 ## What we intend to build
 
 - **Professional PDF editor:** genuinely modify existing text (not merely paint over it), add text/images/shapes/links, annotate, work with forms and signatures, edit pages, undo/redo.

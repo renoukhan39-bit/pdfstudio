@@ -10,6 +10,7 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, build_opener, ProxyHandler, HTTPRedirectHandler
 
 from app.pdf_engine import MergeError
+from app.gotenberg import convert_docx
 from app.toolkit import ToolResult, process_tool
 
 _slots = BoundedSemaphore(2)
@@ -83,7 +84,13 @@ def main():
         resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
     try:
         payload = json.load(sys.stdin)
-        result = process_tool(payload["operation"], [base64.b64decode(d) for d in payload["documents"]], payload["options"])
+        documents = [base64.b64decode(d) for d in payload["documents"]]
+        if payload["operation"] == "docx-to-pdf":
+            if len(documents) != 1:
+                raise MergeError("Exactly one DOCX file is required.")
+            result = convert_docx(documents[0])
+        else:
+            result = process_tool(payload["operation"], documents, payload["options"])
         response = {"data": base64.b64encode(result.data).decode(), "filename": result.filename,
                     "media_type": result.media_type, "pages": result.pages, "note": result.note}
     except MergeError as exc:
