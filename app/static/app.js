@@ -4,8 +4,21 @@
   const input = $("fileInput"), select = $("tool-select"), run = $("merge-button");
   const status = $("merge-status"), zone = $("dropzone"), list = $("file-list");
   const limits = {file: 8 * 1024 * 1024, total: 40 * 1024 * 1024};
+  const officeFormats = {
+    "docx-to-pdf": {
+      extension: ".docx",
+      label: "DOCX",
+      accept: ".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    },
+    "pptx-to-pdf": {
+      extension: ".pptx",
+      label: "PPTX",
+      accept: ".pptx,application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    },
+  };
   let files = [], tools = [], busy = false, lastResult = null;
   const tool = () => tools.find(item => item.slug === select.value);
+  const officeFormat = () => officeFormats[select.value] || null;
   function message(text, error = false) { status.textContent = text; status.classList.toggle("error", error); }
   function action(text, label, handler, disabled) {
     const button = document.createElement("button");
@@ -14,13 +27,13 @@
   }
   function render() {
     const merge = select.value === "merge";
-    const docx = select.value === "docx-to-pdf";
+    const office = officeFormat();
     input.multiple = merge; input.disabled = busy; select.disabled = busy;
     $("clear-files").disabled = busy;
     $("queue-container").hidden = files.length === 0; $("file-count").textContent = `(${files.length})`;
     run.disabled = busy || !tool() || files.length < (merge ? 2 : 1);
     run.textContent = busy ? "Processing…" : `${tool()?.name || "Choose a tool"} →`;
-    $("file-limits").textContent = `${merge ? "2–10 PDFs" : docx ? "One DOCX file" : "One PDF"} · 8 MB each · 200 pages max output`;
+    $("file-limits").textContent = `${merge ? "2–10 PDFs" : office ? `One ${office.label} file` : "One PDF"} · 8 MB each · 200 pages max output`;
     list.replaceChildren();
     files.forEach((file, index) => {
       const row = document.createElement("li"); row.className = "file-row";
@@ -40,9 +53,10 @@
   }
   function changeTool() {
     const slug = select.value;
-    const docx = slug === "docx-to-pdf";
-    input.accept = docx ? ".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" : ".pdf,application/pdf";
-    if (files.some(file => !file.name.toLowerCase().endsWith(docx ? ".docx" : ".pdf"))) {
+    const office = officeFormat();
+    input.accept = office ? office.accept : ".pdf,application/pdf";
+    const extension = office ? office.extension : ".pdf";
+    if (files.some(file => !file.name.toLowerCase().endsWith(extension))) {
       files = []; message("Choose the correct file type for this tool.");
     } else if (slug !== "merge" && files.length > 1) {
       files = files.slice(0, 1); message("Kept the first document for this tool.");
@@ -61,9 +75,9 @@
   function add(incoming) {
     if (busy) return;
     const added = [...incoming], next = files.concat(added), max = select.value === "merge" ? 10 : 1;
-    const docx = select.value === "docx-to-pdf";
+    const office = officeFormat(), extension = office ? office.extension : ".pdf";
     if (next.length > max) return message(`This tool accepts ${max === 1 ? "one file. Clear the current file first" : "up to 10 PDFs"}.`, true);
-    if (added.some(f => !f.name.toLowerCase().endsWith(docx ? ".docx" : ".pdf") || !f.size || f.size > limits.file)) return message(`Choose nonempty ${docx ? "DOCX" : "PDF"} files no larger than 8 MB each.`, true);
+    if (added.some(f => !f.name.toLowerCase().endsWith(extension) || !f.size || f.size > limits.file)) return message(`Choose nonempty ${office ? office.label : "PDF"} files no larger than 8 MB each.`, true);
     if (next.reduce((sum, f) => sum + f.size, 0) > limits.total) return message("Combined files cannot exceed 40 MB.", true);
     files = next; message("Files ready. Review the selected tool and options."); render();
   }
@@ -75,7 +89,7 @@
   zone.addEventListener("drop", event => { event.preventDefault(); zone.classList.remove("dragging"); add(event.dataTransfer.files); });
   $("use-result").addEventListener("click", () => {
     if (!lastResult || busy) return;
-    if (select.value === "docx-to-pdf") { select.value = "extract"; changeTool(); }
+    if (officeFormat()) { select.value = "extract"; changeTool(); }
     files = [new File([lastResult.blob], lastResult.name, {type: "application/pdf"})];
     render(); message("Result selected. Choose the next tool to continue."); select.focus();
   });
@@ -89,7 +103,7 @@
     if (["protect", "unlock"].includes(slug)) options.password = $("pdf-password").value;
     if (slug === "metadata") ["title", "author", "subject", "keywords"].forEach(key => { options[key] = $(`pdf-${key}`).value; });
     files.forEach(file => form.append(slug === "merge" ? "files" : "file", file, file.name));
-    if (slug !== "merge" && slug !== "docx-to-pdf") form.append("options", JSON.stringify(options));
+    if (slug !== "merge" && !officeFormats[slug]) form.append("options", JSON.stringify(options));
     busy = true; lastResult = null; $("use-result").hidden = true; render(); message("Processing your document…");
     const controller = new AbortController(), timer = setTimeout(() => controller.abort(), 60000);
     try {
