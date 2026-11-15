@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "PDF Studio's first reproducible PDF merge API and web prototype"
 requires-python = ">=3.11"
 dependencies = [
-  "fastapi==0.141.1",
+  "fastapi==0.162.4",
   "starlette==1.6.0",
   "uvicorn==0.48.0",
   "python-multipart==0.0.32",
