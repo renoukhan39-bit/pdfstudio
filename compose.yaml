@@ -42,7 +42,7 @@ services:
       timeout: 3s
       retries: 15
   gotenberg:
-    image: gotenberg/gotenberg:9
+    image: gotenberg/gotenberg:9.5.1
     networks: [processing]
     read_only: true
     tmpfs: ['/tmp:size=512m,mode=1777,noexec,nosuid']
