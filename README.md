@@ -1,12 +1,14 @@
 # PDF Studio
 
-> **Project status: early prototype.** The repository now contains an initial runnable web/API implementation of **Merge PDF**. Everything else remains a planned feature unless explicitly tested; no outside application is imported by listing it here.
+> **Project status: 15-tool early prototype.** The repository now includes tested PDF operations and Word-to-PDF via Gotenberg. It is not production-ready; features beyond the tested prototype remain planned, and no other complete PDF website has been imported.
 
 **Mission:** Build an independently branded, reliable, privacy-conscious, affordable, all-in-one PDF platform capable of competing on quality with Adobe Acrobat, iLovePDF, Sejda, Smallpdf and other leading PDF products.
 
 **Product promise:** One upload, one workspace, every major PDF workflow—from editing existing text and filling forms to OCR, conversion, organization, signing, secure redaction, automation and AI-assisted document work.
 
 **Guiding strategy:** **Reuse proven components, don't rebuild mature engines.** Own the original product experience and integration architecture; respect the copyright and licenses of all third-party software.
+
+**Full list of every public repository discussed:** [PUBLIC_PDF_REPOSITORIES.txt](PUBLIC_PDF_REPOSITORIES.txt) — a study/integrate/avoid catalog with license cautions and the A–D only implementation order.
 
 ## Start here
 

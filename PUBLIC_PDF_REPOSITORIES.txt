@@ -1,0 +1,270 @@
+PDF STUDIO — ALL PUBLIC REPOSITORIES PREVIOUSLY RECOMMENDED
+===============================================================
+Verified links / repository metadata reviewed: 2026-11-15
+Product repository: https://github.com/renoukhan39-bit/pdfstudio
+Authoritative scope: docs/ACTIVE-SCOPE.md, docs/IMPLEMENTATION-CHECKLIST.md, AGENTS.md
+
+IMPORTANT: THIS IS A RESEARCH AND INTEGRATION LIST, NOT A LIST OF IMPORTED CODE.
+Only Stages A–D are active. Stage E (AI and advanced automation) and
+Stage F (accounts, billing, collaboration, enterprise) are FROZEN.
+The existing PDF Studio FastAPI / pypdf / worker + Gotenberg foundation is
+the product of record. DO NOT blindly merge multiple complete PDF websites.
+For each upstream dependency, audit its actual pinned version, LICENSE, NOTICE,
+transitive dependencies, fonts, model weights, security and commercial SaaS
+permissions before copying, deploying or redistributing anything.
+A public repository is NOT automatically freely reusable in a proprietary app.
+
+STATUS KEY
+INTEGRATED     Already used in PDF Studio (specific functionality, not entire upstream).
+NEXT           Approved candidate for the next focused A–D integration.
+EVALUATE       Try only if a test shows a relevant feature gap.
+STUDY ONLY     Reference architecture/UX; do not copy whole project.
+HOLD E/F       Outside our current approved A–D scope.
+RESTRICTED     Do not copy/use commercially without an approved license review.
+REFERENCE      An engine/service/project to learn from; no import requirement.
+
+PART 0 — OUR OWN PROJECT AND EXISTING FOUNDATION
+------------------------------------------------
+00. PDF Studio (OUR MAIN PRODUCT)
+    https://github.com/renoukhan39-bit/pdfstudio
+    STATUS: INTEGRATED / CONTINUE BUILDING
+    Purpose: branded web UI, FastAPI API, pypdf core tools, isolated PDF
+    processing, automated tests, Docker Compose, Gotenberg DOCX conversion.
+    Rule: extend, do not replace with an entire imported app.
+
+PART 1 — HIGH-VALUE A–D ENGINES / SELECTED REUSABLE COMPONENTS
+---------------------------------------------------------------
+01. Gotenberg — gotenberg/gotenberg
+    https://github.com/gotenberg/gotenberg
+    GitHub license metadata: MIT (review bundled engine dependencies).
+    STATUS: INTEGRATED; NEXT expand its validated adapter.
+    Why: private HTTP PDF processing API; DOCX-to-PDF implemented and CI tested.
+    Reuse for: XLSX/PPTX/HTML-to-PDF, PDF rendering/other supported operations
+    only after individual output and security tests.
+    Action: pin approved Gotenberg 9 patch release/container digest. No need
+    to copy the Gotenberg Go server into PDF Studio.
+
+02. Mozilla PDF.js — mozilla/pdf.js
+    https://github.com/mozilla/pdf.js
+    Metadata: Apache-2.0. STATUS: NEXT (Stage C).
+    Why: robust PDF viewing, thumbnails, zoom, text selection and search.
+    Limitation: does NOT provide a complete native existing-content editor.
+
+03. pdf-lib — Hopding/pdf-lib
+    https://github.com/Hopding/pdf-lib
+    Metadata: MIT. STATUS: EVALUATE (Stage C).
+    Why: browser PDF creation, page objects, new text/images, forms.
+    Note: latest upstream push seen 2024-07-17; audit maintenance/bugs.
+    Limitation: cannot generally rewrite existing arbitrary PDF page text.
+
+04. OCRmyPDF — ocrmypdf/OCRmyPDF
+    https://github.com/ocrmypdf/OCRmyPDF
+    Metadata: MPL-2.0 (dependencies have their own licenses).
+    STATUS: NEXT after conversions (Stage D).
+    Why: OCR text layers and scan deskew. Keep in isolated worker.
+
+05. pyHanko — MatthiasValvekens/pyHanko
+    https://github.com/MatthiasValvekens/pyHanko
+    Metadata: MIT. STATUS: NEXT later in Stage D.
+    Why: cryptographic PDF signing, PAdES and signature validation.
+    Warning: visual/drawn signatures and cryptographic signatures differ;
+    signing keys, certificate validation and jurisdiction rules require care.
+
+06. qpdf — qpdf/qpdf
+    https://github.com/qpdf/qpdf
+    Metadata: Apache-2.0. STATUS: EVALUATE only for proven gaps.
+    Why: structural PDF handling/encryption/merge and repair-related tasks.
+    Avoid duplicating existing pypdf or Gotenberg operations.
+
+07. Apache PDFBox — apache/pdfbox
+    https://github.com/apache/pdfbox
+    Metadata: Apache-2.0. STATUS: REFERENCE / optional Stage D specialist.
+    Why: Java PDF parsing/manipulation, form/metadata operations.
+    Caution: a Java service adds maintenance and deployment weight.
+
+08. pdfcpu — pdfcpu/pdfcpu
+    https://github.com/pdfcpu/pdfcpu
+    Metadata: Apache-2.0. STATUS: EVALUATE only if needed.
+    Why: Go PDF tooling, page operations and optimization alternatives.
+    Avoid adding a redundant PDF engine without a benchmark.
+
+09. pdfme — pdfme/pdfme
+    https://github.com/pdfme/pdfme
+    Metadata: MIT. STATUS: EVALUATE (Stage C/D forms/templates).
+    Why: visual PDF templates and document generation.
+    Important: templates are not general existing-document text editing.
+
+10. React Konva — konvajs/react-konva
+    https://github.com/konvajs/react-konva
+    Metadata: MIT. STATUS: EVALUATE (Stage C).
+    Why: selection handles, canvas annotations, shapes and object positioning.
+    Note: canvas graphics do not automatically persist as correct PDF objects.
+
+11. Tesseract OCR — tesseract-ocr/tesseract
+    https://github.com/tesseract-ocr/tesseract
+    Metadata: Apache-2.0. STATUS: REFERENCE / OCRmyPDF dependency.
+    Why: OCR engine; use through OCRmyPDF where appropriate.
+    Include model-language-data and license review for Hindi/Punjabi OCR.
+
+12. LibreOffice core — LibreOffice/core
+    https://github.com/LibreOffice/core
+    Metadata: GPL-3.0 on GitHub; upstream licensing is nuanced.
+    STATUS: REFERENCE / Gotenberg dependency, NOT direct source merge.
+    Why: real Office document rendering/conversion behind Gotenberg.
+    Do not copy LibreOffice code into proprietary PDF Studio.
+
+PART 2 — COMPLETE PDF WEBSITES / EDITORS TO STUDY, NOT WHOLESALE MERGE
+--------------------------------------------------------------------
+13. PDFClear — aliansari22/pdfclear
+    https://github.com/aliansari22/pdfclear
+    Metadata: Apache-2.0. STATUS: STUDY ONLY.
+    Why: browser-local PDF tools, web UI, OCR/AI architecture and UX patterns.
+    Reason not to import wholesale: we already have our own working toolkit.
+
+14. Folio — doktorigi/folio
+    https://github.com/doktorigi/folio
+    Metadata: MIT. STATUS: STUDY ONLY.
+    Why: annotation UX, page operations, signatures, form interactions.
+    Important: text replacement may overlay original text. Do not treat it
+    as a complete native PDF text editing engine.
+
+15. S-PDF — KibouAkari/S-PDF
+    https://github.com/KibouAkari/S-PDF
+    Metadata: MIT for repository; transitive dependencies need review.
+    STATUS: STUDY ONLY.
+    Why: React/TypeScript toolkit layout and experimental PDF editor.
+    Risk: PyMuPDF used by parts of stack may require AGPL/commercial license.
+
+16. Stirling PDF — Stirling-Tools/Stirling-PDF
+    https://github.com/Stirling-Tools/Stirling-PDF
+    GitHub metadata: NOASSERTION; mixed/open-core and commercial terms.
+    STATUS: STUDY ONLY / RESTRICTED for code import.
+    Why: broad tool catalog, batch operations, testing patterns and Docker.
+    Do not assume unrestricted commercial rights to its entire engine.
+
+17. PDFZero — bevinkatti/PdfZero
+    https://github.com/bevinkatti/PdfZero
+    Metadata: MIT. STATUS: STUDY ONLY.
+    Why: browser-based editor prototype and text-editing experiments.
+    Need independent fidelity tests before adopting any technique.
+
+18. GigaPDF — QrCommunication/gigapdf
+    https://github.com/QrCommunication/gigapdf
+    GitHub metadata: NOASSERTION; previously identified noncommercial terms.
+    STATUS: RESTRICTED / STUDY ONLY.
+    Why: native PDF editing experiments / backend architecture.
+    Do not incorporate code in a commercial product without explicit license.
+
+19. Sejda SDK — torakiki/sejda
+    https://github.com/torakiki/sejda
+    Metadata: AGPL-3.0. STATUS: RESTRICTED / STUDY ONLY.
+    Why: splitting, merging, PDF processing algorithms and PDFsam lineage.
+    Sejda SDK is NOT the complete hosted Sejda.com PDF text editor.
+
+20. ONLYOFFICE DocumentServer — ONLYOFFICE/DocumentServer
+    https://github.com/ONLYOFFICE/DocumentServer
+    Metadata: AGPL-3.0 with product/license provisions.
+    STATUS: RESTRICTED / STUDY ONLY (native editor candidate).
+    White-label proprietary embedding may require separate developer license.
+
+PART 3 — SPECIALIST ALTERNATIVES AND LICENSING TRAPS
+----------------------------------------------------
+21. PyMuPDF — pymupdf/PyMuPDF
+    https://github.com/pymupdf/PyMuPDF
+    Metadata: AGPL-3.0; commercial licensing alternative exists.
+    STATUS: RESTRICTED.
+    Why: fast Python PDF rendering/text extraction/editing functionality.
+    Do not import into closed-source SaaS without a documented legal approach.
+
+22. pdf2docx — ArtifexSoftware/pdf2docx
+    https://github.com/ArtifexSoftware/pdf2docx
+    Metadata: MIT project code; PyMuPDF dependency is separately licensed.
+    STATUS: EVALUATE (Stage D PDF-to-Word fidelity only).
+    Risk: upstream maintenance/fidelity limits and AGPL/commercial dependency.
+    Not an automatic solution for accurate PDF-to-Office conversions.
+
+PART 4 — REPOSITORIES PREVIOUSLY SUGGESTED FOR STAGE E/F (FROZEN)
+----------------------------------------------------------------
+23. Docling — docling-project/docling
+    https://github.com/docling-project/docling
+    Metadata: MIT project code; models/weights require separate review.
+    STATUS: HOLD E/F.
+    Why: structured document extraction, tables and PDF-to-Markdown for AI.
+    Do NOT integrate in active A–D build without explicit reauthorization.
+
+24. Yjs — yjs/yjs
+    https://github.com/yjs/yjs
+    GitHub metadata: NOASSERTION (read repository LICENSE for actual terms).
+    STATUS: HOLD E/F.
+    Why: collaborative editing primitives; not needed before core editor.
+
+25. Keycloak — keycloak/keycloak
+    https://github.com/keycloak/keycloak
+    Metadata: Apache-2.0. STATUS: HOLD E/F.
+    Why: identity and access management; overkill before accounts/teams.
+
+26. BullMQ — taskforcesh/bullmq
+    https://github.com/taskforcesh/bullmq
+    Metadata: MIT. STATUS: HOLD E/F.
+    Why: Redis-backed job orchestration and workflow processing.
+    Existing worker model is sufficient for current small-file prototype.
+
+PART 5 — COMMERCIAL / HOSTED OPTIONS DISCUSSED (NOT PUBLIC SOURCE REPOS)
+-----------------------------------------------------------------------
+These are NOT public open-source repos to merge, but were suggested for
+comparison, SDK licensing or optional hosted processing:
+
+27. Nutrient Web SDK (formerly PSPDFKit)
+    https://www.nutrient.io/sdk/web/
+    STATUS: RESEARCH ONLY, Stage C native text editing decision.
+    Commercial SDK. Obtain vendor terms, costs, native edit proof.
+
+28. Apryse WebViewer
+    https://apryse.com/products/webviewer
+    STATUS: RESEARCH ONLY, Stage C native editing decision.
+    Commercial SDK; verify text editing and deployment/commercial license.
+
+29. iLovePDF API / iLoveAPI
+    https://www.iloveapi.com/
+    STATUS: REFERENCE, NOT source ownership.
+    Hosted PDF processing API, subject to commercial quotas and data transfer.
+
+30. Sejda developer API
+    https://www.sejda.com/developers
+    STATUS: REFERENCE, NOT full Sejda editor source/API.
+    Verify current offered API scope independently before any integration.
+
+PART 6 — MARKET BENCHMARKS (NOT REPOS TO COPY)
+----------------------------------------------
+Adobe Acrobat: https://www.adobe.com/acrobat/
+iLovePDF:      https://www.ilovepdf.com/
+Sejda:         https://www.sejda.com/
+Smallpdf:      https://smallpdf.com/
+
+THE EXACT INTEGRATION ORDER FOR STAGES A–D
+-----------------------------------------
+A. Keep existing 15-tool PDF Studio, fix release/security/licensing gates and
+   preserve current GitHub CI. No wholesale imported website.
+B. Expand the existing private Gotenberg adapter for XLSX, PPTX, HTML and
+   image conversions where outputs pass fidelity tests; use pypdf for
+   existing working page tools. Avoid redundant engines.
+C. Add PDF.js viewer; evaluate pdf-lib and Konva for specific annotation/forms
+   use. Choose native existing-text engine only after commercial license and
+   underlying-content edit tests.
+D. Add OCRmyPDF, signature verification with pyHanko, true secure redaction,
+   archival, comparison and specialist engines only for proven gaps.
+E/F. FROZEN. Do not scaffold or implement.
+
+CODEX/COST CONTROL
+------------------
+- Study existing app and dependencies BEFORE writing any code.
+- Reuse maintained engines; do NOT rebuild converters, OCR or renderers.
+- One feature / one test corpus / one reviewable PR.
+- Use GitHub CI for Docker/Playwright testing first; reserve Astra for a
+  reproducible blocker with logs and failing acceptance tests.
+- Never silently reduce test coverage, disable checks or claim that
+  browser overlays are secure redaction/native content editing.
+- Owner approves license/SDK expenses, data retention, hosting and launch.
+
+END OF LIST. Every URL in PARTS 0–4 was checked as an existing GitHub repository
+on 2026-11-15. License metadata is not a full legal compliance audit.
