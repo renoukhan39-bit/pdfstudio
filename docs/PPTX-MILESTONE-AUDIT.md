@@ -74,7 +74,7 @@ Status semantics follow `PLANNED -> IN_PROGRESS -> TESTED -> SHIPPED`. None of t
 - Compose keeps the worker and Gotenberg off public host ports; `processing` is an internal network.
 - Worker and Gotenberg roots are read-only with bounded tmpfs/resources and dropped capabilities.
 - Private HTTP adapters disable environment proxies and redirects.
-- The Gotenberg URL is operator configuration, not a user-supplied request field.
+- The Gotenberg URL is operator configuration, not a user-supplied request field; the adapter also rejects public converter hostnames and accepts only the service name/localhost/private literal addresses.
 - PDF outputs are checked for MIME/signature, strict readability, page count and size before returning them.
 - Browser results can be chained without server-side document history.
 

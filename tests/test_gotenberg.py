@@ -153,6 +153,7 @@ class GotenbergUnitTests(unittest.TestCase):
             "http://user:secret@gotenberg:3000",
             "http://gotenberg:3000/path",
             "http://gotenberg:3000?next=http://example.test",
+            "https://example.com",
         ):
             with self.subTest(endpoint=endpoint), self.assertRaises(ConversionUnavailable):
                 convert_pptx(self.pptx, endpoint=endpoint)

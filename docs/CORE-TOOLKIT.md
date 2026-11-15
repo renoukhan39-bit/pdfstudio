@@ -43,7 +43,7 @@ This isolation meaningfully reduces risk but is not a perfect hostile-document s
 
 DOCX/PPTX are ZIP-based OOXML and are treated as untrusted archives. The adapter bounds entry count, total/per-entry declared expansion and compression ratio; rejects unsafe/duplicate paths and encrypted packages; verifies the expected main OOXML part and content type; and never extracts the archive to the filesystem.
 
-The Gotenberg client calls only the configured internal base URL plus the fixed `/forms/libreoffice/convert` route, disables environment proxies and redirects, and does not accept user-provided converter URLs. Returned PDFs must have PDF MIME/signature, parse strictly, be unencrypted, fit the 40 MiB/200-page bounds and contain at least one page.
+The Gotenberg client calls only the configured internal base URL plus the fixed `/forms/libreoffice/convert` route, disables environment proxies and redirects, rejects public converter hostnames, and does not accept user-provided converter URLs. Returned PDFs must have PDF MIME/signature, parse strictly, be unencrypted, fit the 40 MiB/200-page bounds and contain at least one page.
 
 Compose pins Gotenberg 9.5.1 to `sha256:a0f596c2aeee6391c24ccf2953737971f13976b14d4240525a447f209185e2c8`. CI #51 proved both DOCX and PPTX synthetic conversions plus browser chaining before the immutable pin was accepted.
 

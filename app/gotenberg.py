@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 from io import BytesIO
+from ipaddress import ip_address
 import os
 import re
 import secrets
@@ -158,6 +159,14 @@ def _trusted_gotenberg_base(endpoint: str | None) -> str:
         or parsed.path not in {"", "/"}
     ):
         raise ConversionUnavailable("Office conversion is not configured.")
+    hostname = parsed.hostname.rstrip(".").lower()
+    if hostname not in {"gotenberg", "localhost"}:
+        try:
+            address = ip_address(hostname)
+        except ValueError as exc:
+            raise ConversionUnavailable("Office conversion must use an internal service.") from exc
+        if not (address.is_private or address.is_loopback or address.is_link_local):
+            raise ConversionUnavailable("Office conversion must use an internal service.")
     return base.rstrip("/")
 
 
