@@ -1,39 +1,13 @@
 """Real private-Gotenberg DOCX conversion smoke test; synthetic document only."""
+
 from io import BytesIO
 import time
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
-from zipfile import ZipFile
 
 from pypdf import PdfReader
 
-
-def make_docx():
-    output = BytesIO()
-    with ZipFile(output, "w") as archive:
-        archive.writestr(
-            "[Content_Types].xml",
-            '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
-            '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
-            '<Default Extension="xml" ContentType="application/xml"/>'
-            '<Override PartName="/word/document.xml" '
-            'ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>'
-            '</Types>',
-        )
-        archive.writestr(
-            "_rels/.rels",
-            '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
-            '<Relationship Id="rId1" '
-            'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" '
-            'Target="word/document.xml"/></Relationships>',
-        )
-        archive.writestr(
-            "word/document.xml",
-            '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
-            '<w:body><w:p><w:r><w:t>PDF Studio conversion smoke test</w:t></w:r></w:p>'
-            '<w:sectPr/></w:body></w:document>',
-        )
-    return output.getvalue()
+from office_fixtures import make_docx
 
 
 def main():

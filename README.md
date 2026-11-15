@@ -1,6 +1,6 @@
 # PDF Studio
 
-> **Project status: 15-tool early prototype.** The repository now includes tested PDF operations and Word-to-PDF via Gotenberg. It is not production-ready; features beyond the tested prototype remain planned, and no other complete PDF website has been imported.
+> **Project status: 16-tool early prototype.** The repository now includes tested PDF operations plus Word/DOCX-to-PDF and PowerPoint/PPTX-to-PDF through the private Gotenberg worker. It is not production-ready; features beyond the tested prototype remain planned, and no other complete PDF website has been imported.
 
 **Mission:** Build an independently branded, reliable, privacy-conscious, affordable, all-in-one PDF platform capable of competing on quality with Adobe Acrobat, iLovePDF, Sejda, Smallpdf and other leading PDF products.
 
@@ -24,9 +24,9 @@
 
 ## Current work scope: A–D only
 
-Stage E/F implementation is **on hold**. We are preserving the existing 14-tool prototype and selectively integrating tested public engines. [Active Scope and Upstream Decisions](docs/ACTIVE-SCOPE.md).
+Stage E/F implementation is **on hold**. We are preserving the existing 16-tool prototype and selectively integrating tested public engines. [Active Scope and Upstream Decisions](docs/ACTIVE-SCOPE.md).
 
-DOCX-to-PDF is now available in the prototype interface using an internal Gotenberg 9 service. The Docker Compose CI verifies a real conversion. This is **not yet production-ready**; more complex Office documents need a larger fidelity corpus.
+DOCX-to-PDF and PPTX-to-PDF are available in the prototype interface using the internal Gotenberg 9 service. GitHub Actions verifies real synthetic conversions through the private worker and pins Gotenberg 9.5.1 to `sha256:a0f596c2aeee6391c24ccf2953737971f13976b14d4240525a447f209185e2c8`. This is **not yet production-ready**; complex Office documents, fonts, charts and embedded content need a larger fidelity corpus.
 
 ## What we intend to build
 
@@ -38,25 +38,25 @@ DOCX-to-PDF is now available in the prototype interface using an internal Gotenb
 
 The [Feature Inventory](docs/FEATURE-INVENTORY.md) records goals and priorities. **Listed features are not implemented until marked complete with tests.**
 
-## Proposed technical direction (not a final selection)
+## Selected and evaluated technical direction
 
 | Layer | Candidates | Why |
 | --- | --- | --- |
-| Web base | [PDFClear](https://github.com/aliansari22/pdfclear), subject to audit | UI and toolkit starting point |
-| Editor UI references | [Folio](https://github.com/doktorigi/folio), [PDF.js](https://github.com/mozilla/pdf.js), [pdf-lib](https://github.com/Hopding/pdf-lib), [Konva](https://github.com/konvajs/konva) | Rendering, annotations and form operations |
+| Web base | Existing PDF Studio HTML/CSS/JavaScript interface | Product of record; extend rather than replace |
+| Viewer/workspace | [PDF.js 6.5.438](https://github.com/mozilla/pdf.js) selected for Stage C; Folio/pdf-lib/Konva remain references or targeted evaluations | Rendering, thumbnails, zoom, selectable/searchable text and future annotation shell |
 | Advanced PDF editing | Licensed native-content editor SDK, or dedicated R&D | True text editing and fidelity are hard |
-| PDF processing | [Gotenberg](https://github.com/gotenberg/gotenberg); [qpdf](https://github.com/qpdf/qpdf) and other specialist engines as needed | Avoid implementing converters from scratch |
+| PDF processing | [Gotenberg 9.5.1](https://github.com/gotenberg/gotenberg) selected for Office conversion; pypdf remains the working core PDF engine | Reuse tested engines; add specialists only for proven gaps |
 | OCR | [OCRmyPDF](https://github.com/ocrmypdf/OCRmyPDF) | Searchable scanned PDFs |
 | Intelligent extraction | [Docling](https://github.com/docling-project/docling) | Layout and structured extraction |
 | PDF templates | [pdfme](https://github.com/pdfme/pdfme) | Visual templates and generation |
 | Digital signatures | [pyHanko](https://github.com/MatthiasValvekens/pyHanko) | Certificate signatures and validation |
 | Async jobs | [BullMQ](https://github.com/taskforcesh/bullmq) | Durable processing jobs |
 
-**No vendor choice is approved by this README.** Validate APIs, versions, source quality, commercial terms, transitive licenses, deployment cost and actual outputs first. Do not combine entire applications blindly.
+**Only the documented Gotenberg and PDF.js decisions above are selected for their stated A–D roles.** Other engines/SDKs still require API, maintenance, security, license, cost and output review before integration. Do not combine entire applications blindly.
 
 ## Prototype: get it running
 
-This repository now has a small **FastAPI + pypdf merge tool** and responsive no-build frontend. It is **not production-ready**. It deliberately avoids importing entire third-party PDF apps. See [Detailed prototype instructions](docs/PROTOTYPE.md).
+This repository now has a **FastAPI + pypdf toolkit, private worker, Gotenberg Office-conversion service** and responsive no-build frontend. It is **not production-ready**. It deliberately avoids importing entire third-party PDF apps. See [Detailed prototype instructions](docs/PROTOTYPE.md).
 
 ~~~bash
 git clone https://github.com/renoukhan39-bit/pdfstudio.git
@@ -68,7 +68,7 @@ uvicorn app.main:app --reload
 # open http://127.0.0.1:8000
 ~~~
 
-Run tests: `python -m pytest -q`. **Fifteen PDF tools are now implemented as prototypes:** merge, split, extract, delete, reorder, rotate, compress, edit metadata, extract text, AES-256 protection known-password unlock, page numbers, text watermarks and visual cropping. [Toolkit guide](docs/CORE-TOOLKIT.md). The merge API is `POST /api/tools/merge`; merge 2–10 PDFs, 8 MB each, 200 pages maximum. Raw uploads are limited before multipart parsing. See [CI and contributor checks](docs/CI.md) for matrix tests, coverage, lint, packaging and security scans, and [Implementation Status](docs/IMPLEMENTATION-STATUS.md) for exact verification evidence. **This remains a prototype; production worker isolation is not implemented.**
+Run tests: `python -m pytest -q`. **Sixteen tools are now implemented as tested prototypes:** merge, split, extract, delete, reorder, rotate, compress, edit metadata, extract text, AES-256 protect, known-password unlock, page numbers, text watermark, visual crop, Word/DOCX-to-PDF and PowerPoint/PPTX-to-PDF. [Toolkit guide](docs/CORE-TOOLKIT.md). The merge API is `POST /api/tools/merge`; merge 2–10 PDFs, 8 MB each, 200 pages maximum. Raw uploads are limited before multipart parsing. See [CI and contributor checks](docs/CI.md) for matrix tests, coverage, lint, packaging and security scans, and [Implementation Status](docs/IMPLEMENTATION-STATUS.md) for exact verification evidence. **This remains a prototype.** Compose provides a private, non-root, read-only worker/Gotenberg processing network with blocked public egress, but TLS, authentication/rate limits, retention policy, broader hostile-document hardening and production operations are still incomplete.
 
 **Plan before coding more:** [Complete Ordered Checklist](docs/IMPLEMENTATION-CHECKLIST.md) · [Live Implementation Status](docs/IMPLEMENTATION-STATUS.md) · [Known Blockers](docs/IMPLEMENTATION-STATUS.md#blockers-requiring-ownercodex-follow-up).
 

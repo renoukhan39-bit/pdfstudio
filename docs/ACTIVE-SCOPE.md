@@ -1,14 +1,14 @@
-# Active project scope — A–D only (14 November 2026)
+# Active project scope — A–D only (15 November 2026)
 
 **Only Stages A, B, C and D are authorized for active engineering.** These cover foundation, core PDF tools/conversions, a professional editor, and advanced PDF processing/OCR/signing. **Stages E and F are frozen:** AI chat/summaries/translation, advanced workflows, billing, accounts, teams, public API, cloud history and desktop/enterprise expansion. Preserve their earlier roadmap descriptions as future ideas only. Do not add E/F dependencies, scaffolding, endpoints or implementation until the owner explicitly changes this decision.
 
 ## Reuse-first, no big-bang repo merge
 
-The main product remains [this repository](https://github.com/renoukhan39-bit/pdfstudio), with 14 existing prototype tools and strong CI. Do not replace it with another complete website. Source from each upstream only after checking its exact commit, transitive licenses, security, activity, maintenance and output tests.
+The main product remains [this repository](https://github.com/renoukhan39-bit/pdfstudio), with 16 tested prototype tools and strong CI. Do not replace it with another complete website. Source from each upstream only after checking its exact commit, transitive licenses, security, activity, maintenance and output tests.
 
 | Source | Decision | A–D use | Not for |
 | --- | --- | --- | --- |
-| [Gotenberg 9](https://github.com/gotenberg/gotenberg) | **INTEGRATE first** | Internal Office/HTML-to-PDF and other missing PDF operations | Copying its server or replacing working pypdf features |
+| [Gotenberg 9](https://github.com/gotenberg/gotenberg) | **INTEGRATED / EXPAND** | Internal Office conversion now; HTML and other proven gaps later | Copying its server or replacing working pypdf features |
 | [PDF.js](https://github.com/mozilla/pdf.js) | **INTEGRATE for C** | PDF viewer, text selection, zoom, thumbnails/search | Native existing-text rewrite |
 | [pdf-lib](https://github.com/Hopding/pdf-lib) | **EVALUATE for C** | Browser-based new text/image/form/annotation operations | General existing-text rewriting |
 | [OCRmyPDF](https://github.com/ocrmypdf/OCRmyPDF) | **INTEGRATE for D** | OCR/deskew/scanned-page text layer | Native text editing |
@@ -24,8 +24,8 @@ The main product remains [this repository](https://github.com/renoukhan39-bit/pd
 ## Ordered actions
 
 1. **A:** Protect current main branch; settle original-code licensing, lock dependencies, maintain security and regression coverage.
-2. **B:** Complete Gotenberg DOCX-to-PDF spike with real isolated Compose conversion tests. Keep current 14 tools unchanged.
-3. **B:** Add successful conversion to the interface; expand to PPTX/XLSX/HTML only after tests.
+2. **B:** DOCX-to-PDF and PPTX-to-PDF are TESTED through isolated Compose/Gotenberg, browser download/reopen and result chaining. Preserve these regressions.
+3. **B:** Add XLSX-to-PDF next through the same bounded Office adapter; add controlled HTML-to-PDF only after SSRF-safe ingestion tests.
 4. **B:** Finish missing image and page tools; use existing pypdf first, Gotenberg for demonstrated gaps.
 5. **C:** Build PDF.js-based viewer and editing shell, then annotations, forms and signatures.
 6. **C:** Choose the licensed native-content editor approach and prove text actually changes.

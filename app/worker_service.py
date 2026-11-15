@@ -7,6 +7,7 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
+from app.gotenberg import ConversionUnavailable
 from app.pdf_engine import MAX_FILE_BYTES, MAX_TOTAL_BYTES, MergeError
 from app.upload_limits import UploadLimitMiddleware
 from app.worker import WorkerBusy, execute
@@ -33,13 +34,19 @@ async def run(request: WorkRequest):
     try:
         for encoded in request.documents:
             if len(encoded) > ((MAX_FILE_BYTES + 2) // 3) * 4:
-                raise MergeError('Input PDF exceeds the size limit.')
+                raise MergeError('Input document exceeds the size limit.')
             decoded = base64.b64decode(encoded, validate=True)
             total += len(decoded)
             if not decoded or len(decoded) > MAX_FILE_BYTES or total > MAX_TOTAL_BYTES:
-                raise MergeError('Input PDF size limit exceeded.')
+                raise MergeError('Input document size limit exceeded.')
             documents.append(decoded)
         result = await run_in_threadpool(execute, request.operation, documents, request.options)
+    except ConversionUnavailable as exc:
+        raise HTTPException(
+            503,
+            str(exc),
+            headers={'Retry-After': '5', 'X-PDFStudio-Error': 'converter-unavailable'},
+        ) from exc
     except WorkerBusy as exc:
         raise HTTPException(503, str(exc), headers={'Retry-After': '5'}) from exc
     except (MergeError, binascii.Error) as exc:

@@ -10,10 +10,11 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, build_opener, ProxyHandler, HTTPRedirectHandler
 
 from app.pdf_engine import MergeError
-from app.gotenberg import convert_docx
+from app.gotenberg import ConversionUnavailable, convert_docx, convert_pptx
 from app.toolkit import ToolResult, process_tool
 
 _slots = BoundedSemaphore(2)
+_OFFICE_OPERATIONS = {"docx-to-pdf": ("DOCX", convert_docx), "pptx-to-pdf": ("PPTX", convert_pptx)}
 
 
 class WorkerBusy(MergeError):
@@ -40,6 +41,8 @@ def remote_execute(url, operation, documents, options):
         return ToolResult(base64.b64decode(result['data'], validate=True), result['filename'], result['media_type'], result['pages'], result['note'])
     except HTTPError as exc:
         if exc.code == 503:
+            if exc.headers.get("X-PDFStudio-Error") == "converter-unavailable":
+                raise ConversionUnavailable("The conversion service is unavailable.") from exc
             raise WorkerBusy("Processing is busy. Please try again shortly.") from exc
         if exc.code == 422:
             try:
@@ -47,8 +50,14 @@ def remote_execute(url, operation, documents, options):
             except ValueError:
                 detail = 'The worker rejected this document.'
             raise MergeError(detail if isinstance(detail, str) else 'Invalid document.') from exc
+        if operation in _OFFICE_OPERATIONS:
+            raise ConversionUnavailable("The conversion service is unavailable.") from exc
         raise MergeError("The processing service is unavailable.") from exc
-    except (URLError, TimeoutError, ValueError, KeyError) as exc:
+    except (URLError, TimeoutError) as exc:
+        if operation in _OFFICE_OPERATIONS:
+            raise ConversionUnavailable("The conversion service is unavailable.") from exc
+        raise MergeError("The processing service did not return a valid result.") from exc
+    except (ValueError, KeyError) as exc:
         raise MergeError("The processing service did not return a valid result.") from exc
 
 
@@ -69,6 +78,8 @@ def execute(operation, documents, options):
             raise MergeError("Processing stopped because the worker failed or exceeded a resource limit.")
         result = json.loads(child.stdout)
         if "error" in result:
+            if result.get("error_kind") == "converter-unavailable":
+                raise ConversionUnavailable(result["error"])
             raise MergeError(result["error"])
         return ToolResult(base64.b64decode(result["data"]), result["filename"], result["media_type"], result["pages"], result["note"])
     finally:
@@ -85,14 +96,17 @@ def main():
     try:
         payload = json.load(sys.stdin)
         documents = [base64.b64decode(d) for d in payload["documents"]]
-        if payload["operation"] == "docx-to-pdf":
+        if payload["operation"] in _OFFICE_OPERATIONS:
+            label, converter = _OFFICE_OPERATIONS[payload["operation"]]
             if len(documents) != 1:
-                raise MergeError("Exactly one DOCX file is required.")
-            result = convert_docx(documents[0])
+                raise MergeError(f"Exactly one {label} file is required.")
+            result = converter(documents[0])
         else:
             result = process_tool(payload["operation"], documents, payload["options"])
         response = {"data": base64.b64encode(result.data).decode(), "filename": result.filename,
                     "media_type": result.media_type, "pages": result.pages, "note": result.note}
+    except ConversionUnavailable as exc:
+        response = {"error": str(exc), "error_kind": "converter-unavailable"}
     except MergeError as exc:
         response = {"error": str(exc)}
     except Exception:

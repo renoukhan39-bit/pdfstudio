@@ -1,3 +1,5 @@
+> **Implemented topology as of 2026-11-15:** Browser -> FastAPI + raw upload limits -> private worker -> bounded child -> pypdf or trusted Gotenberg 9.5.1 adapter -> strict output validation -> download/result chaining. Compose keeps worker/Gotenberg on the internal processing network with no public worker port; CI verifies non-root/read-only/no-public-egress controls. PDF.js is selected for a future Stage C browser workspace but is not yet implemented. Diagrams below that describe later services are proposed architecture unless explicitly labeled implemented. See [PPTX milestone audit](PPTX-MILESTONE-AUDIT.md) and [Top-two research](RESEARCH-TOP-2.md).
+
 # Reference Architecture (Proposed, Not Yet Implemented)
 
 ## Architectural stance
