@@ -8,15 +8,15 @@ from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
 
+from app.gotenberg import ConversionUnavailable, validate_docx, validate_pptx
 from app.pdf_engine import (
     MAX_FILE_BYTES,
     MAX_FILES,
     MAX_TOTAL_BYTES,
     MergeError,
 )
-from app.upload_limits import UploadLimitMiddleware
 from app.toolkit import TOOLS, TOOL_SLUGS
-from app.gotenberg import validate_docx
+from app.upload_limits import UploadLimitMiddleware
 from app.worker import WorkerBusy, execute
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
@@ -92,16 +92,13 @@ async def merge(files: list[UploadFile] = File(...)):
     )
 
 
-
-@app.post("/api/tools/docx-to-pdf", response_class=Response)
-async def docx_to_pdf(file: UploadFile = File(...)):
-    """Experimental internal converter; not yet advertised among the 14 tools."""
+async def _office_to_pdf(file: UploadFile, operation: str, extension: str, label: str, validator):
     try:
-        if not file.filename or not file.filename.lower().endswith(".docx"):
-            raise HTTPException(status_code=422, detail="Choose a DOCX file.")
+        if not file.filename or not file.filename.lower().endswith(extension):
+            raise HTTPException(status_code=422, detail=f"Choose a {label} file.")
         data = await file.read(MAX_FILE_BYTES + 1)
         try:
-            validate_docx(data)
+            validator(data)
         except MergeError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
     finally:
@@ -109,15 +106,27 @@ async def docx_to_pdf(file: UploadFile = File(...)):
     if not (os.environ.get("PDFSTUDIO_WORKER_URL") or os.environ.get("PDFSTUDIO_GOTENBERG_URL")):
         raise HTTPException(status_code=503, detail="Office conversion is not configured.")
     try:
-        result = await run_in_threadpool(execute, "docx-to-pdf", [data], {})
+        result = await run_in_threadpool(execute, operation, [data], {})
+    except ConversionUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc), headers={"Retry-After": "5"}) from exc
     except WorkerBusy as exc:
         raise HTTPException(status_code=503, detail=str(exc), headers={"Retry-After": "5"}) from exc
     except MergeError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return Response(result.data, media_type=result.media_type, headers={
-        "Content-Disposition": 'attachment; filename="pdfstudio-docx-to-pdf.pdf"',
+        "Content-Disposition": f'attachment; filename="pdfstudio-{operation}.pdf"',
         "X-PDF-Pages": str(result.pages),
     })
+
+
+@app.post("/api/tools/docx-to-pdf", response_class=Response)
+async def docx_to_pdf(file: UploadFile = File(...)):
+    return await _office_to_pdf(file, "docx-to-pdf", ".docx", "DOCX", validate_docx)
+
+
+@app.post("/api/tools/pptx-to-pdf", response_class=Response)
+async def pptx_to_pdf(file: UploadFile = File(...)):
+    return await _office_to_pdf(file, "pptx-to-pdf", ".pptx", "PPTX", validate_pptx)
 
 
 @app.post("/api/tools/{operation}", response_class=Response)
@@ -148,4 +157,3 @@ async def process(operation: str, file: UploadFile = File(...), options: str = F
         "Content-Disposition": f'attachment; filename="{result.filename}"',
         "X-PDF-Pages": str(result.pages), "X-PDF-Notice": result.note,
     })
-
