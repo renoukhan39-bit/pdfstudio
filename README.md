@@ -38,21 +38,21 @@ DOCX-to-PDF and PPTX-to-PDF are available in the prototype interface using the i
 
 The [Feature Inventory](docs/FEATURE-INVENTORY.md) records goals and priorities. **Listed features are not implemented until marked complete with tests.**
 
-## Proposed technical direction (not a final selection)
+## Selected and evaluated technical direction
 
 | Layer | Candidates | Why |
 | --- | --- | --- |
-| Web base | [PDFClear](https://github.com/aliansari22/pdfclear), subject to audit | UI and toolkit starting point |
-| Editor UI references | [Folio](https://github.com/doktorigi/folio), [PDF.js](https://github.com/mozilla/pdf.js), [pdf-lib](https://github.com/Hopding/pdf-lib), [Konva](https://github.com/konvajs/konva) | Rendering, annotations and form operations |
+| Web base | Existing PDF Studio HTML/CSS/JavaScript interface | Product of record; extend rather than replace |
+| Viewer/workspace | [PDF.js 6.5.438](https://github.com/mozilla/pdf.js) selected for Stage C; Folio/pdf-lib/Konva remain references or targeted evaluations | Rendering, thumbnails, zoom, selectable/searchable text and future annotation shell |
 | Advanced PDF editing | Licensed native-content editor SDK, or dedicated R&D | True text editing and fidelity are hard |
-| PDF processing | [Gotenberg](https://github.com/gotenberg/gotenberg); [qpdf](https://github.com/qpdf/qpdf) and other specialist engines as needed | Avoid implementing converters from scratch |
+| PDF processing | [Gotenberg 9.5.1](https://github.com/gotenberg/gotenberg) selected for Office conversion; pypdf remains the working core PDF engine | Reuse tested engines; add specialists only for proven gaps |
 | OCR | [OCRmyPDF](https://github.com/ocrmypdf/OCRmyPDF) | Searchable scanned PDFs |
 | Intelligent extraction | [Docling](https://github.com/docling-project/docling) | Layout and structured extraction |
 | PDF templates | [pdfme](https://github.com/pdfme/pdfme) | Visual templates and generation |
 | Digital signatures | [pyHanko](https://github.com/MatthiasValvekens/pyHanko) | Certificate signatures and validation |
 | Async jobs | [BullMQ](https://github.com/taskforcesh/bullmq) | Durable processing jobs |
 
-**No vendor choice is approved by this README.** Validate APIs, versions, source quality, commercial terms, transitive licenses, deployment cost and actual outputs first. Do not combine entire applications blindly.
+**Only the documented Gotenberg and PDF.js decisions above are selected for their stated A–D roles.** Other engines/SDKs still require API, maintenance, security, license, cost and output review before integration. Do not combine entire applications blindly.
 
 ## Prototype: get it running
 

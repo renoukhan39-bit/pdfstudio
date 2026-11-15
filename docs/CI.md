@@ -14,6 +14,8 @@ python -m venv .venv
 source .venv/bin/activate
 python -m pip install -e '.[dev]'
 python -m pip check
+python scripts/check.py
+python -m pytest -q
 python -m ruff check app tests scripts
 node --check app/static/app.js
 python -m pytest -q --cov=app --cov-branch --cov-report=term-missing --cov-fail-under=85
@@ -30,7 +32,7 @@ python -m pip_audit --skip-editable
 | Package and installed-app smoke test | Packaging broken, missing assets, installed merge fails | Build log and `scripts/smoke.py` |
 | Dependency audit | Known vulnerability or scanner failure | Audit log and CycloneDX artifact; upgrade affected packages and rerun tests |
 | Container smoke test | Image cannot build/start, runs as root, assets missing | Docker logs in the cleanup step |
-| Isolated worker and browser journey | Worker network/filesystem isolation, upload/download or chaining fails | Compose logs and uploaded Playwright trace |
+| Isolated worker and browser journey | Pinned Gotenberg identity, worker/Gotenberg isolation, DOCX/PPTX conversion, upload/download or chaining fails | Compose logs and uploaded Playwright trace |
 | CI required | Any required job failed, was cancelled or skipped | Open the corresponding job above |
 
 Open the PR's **Checks** tab, select the failed job, reproduce its command, fix
@@ -49,14 +51,14 @@ The current change does not modify repository administration settings.
 
 ## Scope and remaining work
 
-CI verifies the merge prototype and ingress protections. It does not prove
+CI verifies the 16-tool prototype, ingress protections, private worker topology and real synthetic DOCX/PPTX conversion. It does not prove
 browser accessibility, hostile-PDF sandboxing, complete license compliance or
 production readiness. Direct dependencies are pinned; transitive resolution is
 not yet locked. The CycloneDX file inventories installed packages, not the
 complete container OS. Add a reviewed lockfile and container-level scanning next.
 Original-code licensing and contribution terms still need an owner decision.
 
-Run the browser checks locally with `pip install -e ".[dev,browser]"`, `python -m playwright install chromium`, `docker compose up --build -d --wait`, then `python scripts/browser_smoke.py`. CI uses Ubuntu 24.04 for browser dependency compatibility.
+Run the browser/conversion checks locally with `pip install -e '.[dev,browser]'`, `python -m playwright install chromium`, `docker compose up --build -d --wait`, then `python scripts/browser_smoke.py`, `python scripts/gotenberg_smoke.py` and `python scripts/pptx_smoke.py`. CI uses Ubuntu 24.04 for browser dependency compatibility.
 
 ## AI-contributor guardrails
 

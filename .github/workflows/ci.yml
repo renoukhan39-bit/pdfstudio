@@ -31,6 +31,10 @@ jobs:
       - run: python -m ruff check app tests scripts
       - run: python -m compileall -q app
       - run: node --check app/static/app.js
+      - name: Contributor check wrapper
+        run: python scripts/check.py
+      - name: Plain pytest regression run
+        run: python -m pytest -q
   tests:
     name: Tests (Python ${{ matrix.python }})
     runs-on: ubuntu-latest
@@ -148,8 +152,10 @@ jobs:
       - run: docker compose up --build --detach --wait --wait-timeout 90
       - name: Verify immutable Gotenberg image
         run: |
-          expected='gotenberg/gotenberg@sha256:a0f596c2aeee6391c24ccf2953737971f13976b14d4240525a447f209185e2c8'
-          actual="$(docker image inspect gotenberg/gotenberg:9.5.1 --format '{{index .RepoDigests 0}}')"
+          expected='gotenberg/gotenberg:9.5.1@sha256:a0f596c2aeee6391c24ccf2953737971f13976b14d4240525a447f209185e2c8'
+          container="$(docker compose ps -q gotenberg)"
+          test -n "$container"
+          actual="$(docker inspect "$container" --format '{{.Config.Image}}')"
           test "$actual" = "$expected"
       - name: Verify worker isolation
         run: |
