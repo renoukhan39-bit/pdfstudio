@@ -1,6 +1,7 @@
 """PDF Studio API and small same-origin frontend, first functional milestone."""
 from pathlib import Path
 import json
+import os
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, Response
@@ -15,6 +16,7 @@ from app.pdf_engine import (
 )
 from app.upload_limits import UploadLimitMiddleware
 from app.toolkit import TOOLS, TOOL_SLUGS
+from app.gotenberg import validate_docx
 from app.worker import WorkerBusy, execute
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
@@ -88,6 +90,34 @@ async def merge(files: list[UploadFile] = File(...)):
             "X-PDF-Pages": str(result.pages),
         },
     )
+
+
+
+@app.post("/api/tools/docx-to-pdf", response_class=Response)
+async def docx_to_pdf(file: UploadFile = File(...)):
+    """Experimental internal converter; not yet advertised among the 14 tools."""
+    try:
+        if not file.filename or not file.filename.lower().endswith(".docx"):
+            raise HTTPException(status_code=422, detail="Choose a DOCX file.")
+        data = await file.read(MAX_FILE_BYTES + 1)
+        try:
+            validate_docx(data)
+        except MergeError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+    finally:
+        await file.close()
+    if not (os.environ.get("PDFSTUDIO_WORKER_URL") or os.environ.get("PDFSTUDIO_GOTENBERG_URL")):
+        raise HTTPException(status_code=503, detail="Office conversion is not configured.")
+    try:
+        result = await run_in_threadpool(execute, "docx-to-pdf", [data], {})
+    except WorkerBusy as exc:
+        raise HTTPException(status_code=503, detail=str(exc), headers={"Retry-After": "5"}) from exc
+    except MergeError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return Response(result.data, media_type=result.media_type, headers={
+        "Content-Disposition": 'attachment; filename="pdfstudio-docx-to-pdf.pdf"',
+        "X-PDF-Pages": str(result.pages),
+    })
 
 
 @app.post("/api/tools/{operation}", response_class=Response)

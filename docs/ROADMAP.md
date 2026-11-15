@@ -1,3 +1,5 @@
+> **Current freeze (2026-11-14): Only Stages A–D active. All Phase 4/5 work below is historical/future scope and must not be implemented now.** See [Active Scope](ACTIVE-SCOPE.md).
+
 # Phased Product Roadmap
 
 No deadlines promised. Complete phases using measurable release gates rather than claiming “everything built” after a single Codex run.

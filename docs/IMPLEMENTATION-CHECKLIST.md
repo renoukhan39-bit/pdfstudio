@@ -1,3 +1,5 @@
+> **Active instruction (2026-11-14): Implement Stages A–D only. Stages E/F are frozen until owner reauthorization.** See [Active Scope](ACTIVE-SCOPE.md).
+
 # PDF Studio — Complete Ordered Implementation Checklist
 
 > **Purpose:** This checklist is the execution sequence, not an assertion of completed features. Check items only after the documented acceptance gate passes. See [Implementation Status](IMPLEMENTATION-STATUS.md), [Feature Inventory](FEATURE-INVENTORY.md), [Architecture](ARCHITECTURE.md) and [Quality](QUALITY-AND-TESTING.md).

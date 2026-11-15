@@ -26,6 +26,7 @@ TOOLS = [
     ("OP-16", "page-numbers", "Page numbers", "Add page numbers to selected pages."),
     ("OP-18", "watermark", "Text watermark", "Add a translucent text watermark."),
     ("OP-07", "crop", "Crop PDF", "Trim visible margins; content remains recoverable."),
+    ("CV-02", "docx-to-pdf", "Word to PDF", "Convert a DOCX document using the isolated Gotenberg engine."),
 ]
 TOOL_SLUGS = {tool[1] for tool in TOOLS}
 
@@ -101,7 +102,7 @@ def _selected_pdf(reader, indices):
 
 def process_tool(operation: str, documents: list[bytes], options: dict) -> ToolResult:
     """Return validated bytes; errors never include document text or passwords."""
-    if operation not in TOOL_SLUGS:
+    if operation not in TOOL_SLUGS or operation == "docx-to-pdf":
         raise MergeError("Unknown PDF operation.")
     if not isinstance(options, dict) or len(json.dumps(options)) > 8192:
         raise MergeError("Invalid or oversized options.")

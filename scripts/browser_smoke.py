@@ -5,6 +5,7 @@ from pathlib import Path
 
 from playwright.sync_api import sync_playwright, expect
 from pypdf import PdfReader, PdfWriter
+from gotenberg_smoke import make_docx
 
 
 def pdf(widths):
@@ -28,7 +29,7 @@ def main():
         page.on('pageerror', lambda error: errors.append(str(error)))
         try:
             page.goto(os.environ.get('PDFSTUDIO_TEST_URL', 'http://127.0.0.1:8000'))
-            expect(page.locator('#tool-select option')).to_have_count(14)
+            expect(page.locator('#tool-select option')).to_have_count(15)
             page.locator('#fileInput').set_input_files([
                 {'name': 'first.pdf', 'mimeType': 'application/pdf', 'buffer': pdf([100, 200])},
                 {'name': 'second.pdf', 'mimeType': 'application/pdf', 'buffer': pdf([400])},
@@ -56,6 +57,20 @@ def main():
             expect(page.locator('#merge-button')).to_be_enabled()
             page.locator('#clear-files').click()
             expect(page.locator('#merge-button')).to_be_disabled()
+            # Real browser DOCX -> PDF -> continue editing journey.
+            page.locator('#tool-select').select_option('docx-to-pdf')
+            page.locator('#fileInput').set_input_files({
+                'name': 'example.docx',
+                'mimeType': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                'buffer': make_docx(),
+            })
+            with page.expect_download() as download:
+                page.locator('#merge-button').click()
+            converted = PdfReader(download.value.path())
+            assert 'PDF Studio conversion smoke test' in converted.pages[0].extract_text()
+            page.locator('#use-result').click()
+            assert page.locator('#tool-select').input_value() == 'extract'
+            expect(page.locator('#merge-button')).to_be_enabled()
             page.set_viewport_size({'width': 390, 'height': 844})
             assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
             page.screenshot(path=str(reports / 'mobile.png'), full_page=True)
