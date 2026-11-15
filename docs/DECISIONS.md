@@ -41,3 +41,20 @@ Record date, context, decision alternatives, exact chosen option, affected licen
 **Not a final product architecture decision:** The Python PDF parser operates inside the API process, without a hostile-file sandbox. Do **not** deploy publicly. PDFClear and Gotenberg remain candidates pending audit; high-fidelity native editing is still undecided.
 
 **Evidence:** `tests/test_merge.py`, `docs/IMPLEMENTATION-STATUS.md`, `docs/PROTOTYPE.md`. Dependency license is BSD-3-Clause for pypdf and MIT for FastAPI (version-specific recheck required).
+
+
+## ADR-0007 — Gotenberg 9 for bounded Office conversion (ACCEPTED 2026-11-15)
+
+**Decision:** Reuse the existing private Gotenberg service for Office-to-PDF rather than add a second converter. DOCX and PPTX route through one PDF Studio OOXML validator/adapter and the existing isolated worker. Gotenberg is pinned to 9.5.1 at `sha256:a0f596c2aeee6391c24ccf2953737971f13976b14d4240525a447f209185e2c8`.
+
+**Evidence:** [Top-two research](RESEARCH-TOP-2.md), [PPTX milestone audit](PPTX-MILESTONE-AUDIT.md), and [CI #51](https://github.com/renoukhan39-bit/pdfstudio/actions/runs/43745076741), which verified private DOCX/PPTX conversion, browser chaining and worker isolation.
+
+**Constraints:** No arbitrary URL conversion, `downloadFrom`, webhook or user-supplied Gotenberg endpoint. Keep proxies/redirects disabled, preserve upload/archive/output/time/resource limits, and review the exact container's transitive licenses/SBOM before production redistribution.
+
+**Reversal:** Roll back to a previously tested immutable Gotenberg digest and rerun the same DOCX/PPTX suite. Do not silently fall back to a hosted third-party converter.
+
+## ADR-0008 — PDF.js as Stage C viewer foundation (ACCEPTED FOR FUTURE INTEGRATION 2026-11-15)
+
+**Decision:** Mozilla PDF.js 6.5.438 (tag commit `0a4153349dc473ba950fc17941c5ca7eda43c1de`, Apache-2.0) is the selected viewer/workspace foundation for Stage C. Self-host audited distribution assets and keep the current PDF Studio brand/workflow.
+
+**Non-goal:** PDF.js does not solve arbitrary native modification of existing PDF text. That remains ADR-0003.

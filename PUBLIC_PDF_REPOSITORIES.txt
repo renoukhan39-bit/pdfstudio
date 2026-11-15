@@ -36,8 +36,10 @@ PART 1 — HIGH-VALUE A–D ENGINES / SELECTED REUSABLE COMPONENTS
 ---------------------------------------------------------------
 01. Gotenberg — gotenberg/gotenberg
     https://github.com/gotenberg/gotenberg
+    Selected/tested: v9.5.1, commit 2a025609d36eb7a970c31397e652ee439a7214fe.
+    Container pin: gotenberg/gotenberg:9.5.1@sha256:a0f596c2aeee6391c24ccf2953737971f13976b14d4240525a447f209185e2c8
     GitHub license metadata: MIT (review bundled engine dependencies).
-    STATUS: INTEGRATED; NEXT expand its validated adapter.
+    STATUS: INTEGRATED for DOCX/PPTX; NEXT expand its validated adapter.
     Why: private HTTP PDF processing API; DOCX-to-PDF implemented and CI tested.
     Reuse for: XLSX/PPTX/HTML-to-PDF, PDF rendering/other supported operations
     only after individual output and security tests.
@@ -46,6 +48,7 @@ PART 1 — HIGH-VALUE A–D ENGINES / SELECTED REUSABLE COMPONENTS
 
 02. Mozilla PDF.js — mozilla/pdf.js
     https://github.com/mozilla/pdf.js
+    Selected: v6.5.438, commit 0a4153349dc473ba950fc17941c5ca7eda43c1de.
     Metadata: Apache-2.0. STATUS: NEXT (Stage C).
     Why: robust PDF viewing, thumbnails, zoom, text selection and search.
     Limitation: does NOT provide a complete native existing-content editor.

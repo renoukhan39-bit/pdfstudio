@@ -56,7 +56,7 @@ Status semantics follow `PLANNED -> IN_PROGRESS -> TESTED -> SHIPPED`. None of t
 | --- | --- | --- | --- | --- | --- | --- |
 | Core PDF utilities | TESTED | FastAPI + pypdf + bounded worker | Larger fidelity/security corpus and public-release controls | Existing | pypdf | Existing unit, mutation, browser and Compose checks remain green |
 | DOCX-to-PDF | TESTED | Private Gotenberg route + unit/smoke/browser tests | Broader Office fidelity corpus and immutable image provenance | Existing | Gotenberg/LibreOffice | Existing DOCX text/page smoke remains green |
-| PPTX-to-PDF | IN_PROGRESS | Gotenberg can convert PPTX, but PDF Studio has no route/UI/tests | OOXML validation, endpoint, UI, worker route, real smoke/E2E | P0 | Gotenberg/LibreOffice | Synthetic PPTX converts to PDF, expected slide text and page count verified, result chains into another tool |
+| PPTX-to-PDF | TESTED | Gotenberg can convert PPTX, but PDF Studio has no route/UI/tests | OOXML validation, endpoint, UI, worker route, real smoke/E2E | P0 | Gotenberg/LibreOffice | Synthetic PPTX converts to PDF, expected slide text and page count verified, result chains into another tool |
 | XLSX-to-PDF | PLANNED | Upstream engine capability only | Format validation, API/UI, fidelity tests | Next Stage B | Gotenberg/LibreOffice | Synthetic workbook + tables/charts corpus |
 | HTML-to-PDF | PLANNED | Upstream engine capability only | Safe controlled HTML ingestion; no arbitrary remote fetch | Stage B | Gotenberg/Chromium | Local-content-only fixtures; SSRF tests |
 | PDF.js workspace | PLANNED | No PDF.js assets in product | Viewer, thumbnails, zoom, find, text layer, cleanup, keyboard/accessibility | Stage C | PDF.js | Synthetic mixed-size/rotated/searchable PDFs in browser |
@@ -126,4 +126,4 @@ This milestone may add assertions and smoke coverage. It must not lower coverage
 
 ## Implementation gap report
 
-The smallest correct next slice is: generalize the existing Office adapter -> add PPTX package validation -> add `POST /api/tools/pptx-to-pdf` -> route through the existing worker -> update the current no-build UI -> add unit, integration and browser tests -> verify exact Gotenberg image -> pin only the tested immutable image -> correct stale status/docs. No parallel backend, frontend rewrite, account/AI/billing work, or native-text-editing claim is in scope.
+The PPTX slice is now implemented and TESTED in [CI #51](https://github.com/renoukhan39-bit/pdfstudio/actions/runs/43745076741): shared Office adapter, package validation, `POST /api/tools/pptx-to-pdf`, existing-worker routing, current no-build UI, unit/integration/browser tests and immutable Gotenberg 9.5.1 pin `sha256:a0f596c2aeee6391c24ccf2953737971f13976b14d4240525a447f209185e2c8`. It is not marked SHIPPED; broader fidelity and production controls remain. No parallel backend, frontend rewrite, account/AI/billing work, or native-text-editing claim is in scope.

@@ -8,7 +8,7 @@
 - **Product:** A competitive, privacy-focused PDF website and eventual multi-platform software system.
 - **Commercial goal:** Build an independent, sustainable competitor to Adobe Acrobat, iLovePDF, Sejda and Smallpdf.
 - **Technical principle:** One modular monorepo and one branded UX; compose best-fit PDF engines instead of merging multiple entire applications.
-- **Truth about current status:** An **fourteen-tool working prototype** now exists with a FastAPI backend and a basic frontend; it is not security-hardened or deployed. See [Prototype](PROTOTYPE.md) and [Implementation Status](IMPLEMENTATION-STATUS.md).
+- **Truth about current status:** A **sixteen-tool tested prototype** now exists with a FastAPI backend, no-build frontend, private processing worker and Gotenberg Office conversion; it is not a production service. See [Prototype](PROTOTYPE.md) and [Implementation Status](IMPLEMENTATION-STATUS.md).
 
 ## Where decisions are written
 1. [Product Vision](PRODUCT-VISION.md) — positioning, audience, principles and success criteria.
@@ -30,12 +30,12 @@
 - Reuse existing validated engines before creating replacements.
 - Make uploading and processing safe, simple and transparent.
 
-## Initial architecture hypothesis
-A React/TypeScript web application, service adapter API, Gotenberg or other tested processing backend, OCRmyPDF for OCR, Docling for structured extraction, a proven advanced editor SDK if commercially viable, and isolated queued workers. The UI starter may be PDFClear; Folio is an editor reference. **These are candidates, not decisions to download and combine indiscriminately.**
+## Current architecture and next viewer direction
+The implemented product is the existing FastAPI + HTML/CSS/JavaScript application, with pypdf for working PDF utilities and a private worker/Gotenberg 9 service for Office conversion. Do not replace that working foundation merely to introduce a fashionable stack. PDF.js 6.5.438 is the selected Stage C browser viewer foundation; OCRmyPDF is a later Stage D specialist. Native existing-text editing still needs a separate technical/licensing decision. See [Top-two research](RESEARCH-TOP-2.md).
 
 ## First contributor actions
 If you are an architect: run a focused evaluation of the PDFClear starter and license/compliance list.
-If you are a backend engineer: build a Gotenberg adapter proof of concept with synthetic fixtures.
+If you are a backend engineer: extend the tested Office adapter one format at a time; XLSX-to-PDF is the next smallest conversion slice.
 If you are an editor specialist: test native-text editing SDKs with font, layout and extraction checks.
 If you are a QA engineer: define canonical fixtures and acceptance tests.
 If you are a designer: prototype the unified upload/editor/workspace flow.

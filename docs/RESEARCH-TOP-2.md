@@ -12,13 +12,14 @@ This document records a technical selection, not a blanket license approval for 
 - **Tag commit:** `2a025609d36eb7a970c31397e652ee439a7214fe`
 - **Release date:** 2026-11-14
 - **Project license:** MIT; preserve the copyright/license notice when redistributing project code or substantial portions.
-- **Role in PDF Studio:** private server-side Office/document conversion. It is already integrated for DOCX-to-PDF.
+- **Tested container:** `gotenberg/gotenberg:9.5.1@sha256:a0f596c2aeee6391c24ccf2953737971f13976b14d4240525a447f209185e2c8`
+- **Role in PDF Studio:** private server-side Office/document conversion. DOCX-to-PDF and PPTX-to-PDF are integrated and tested.
 
 ### Why it remains the strongest primary conversion choice
 
 Gotenberg 9 exposes one stable HTTP boundary for the converters we need and its LibreOffice route supports Word, Excel and PowerPoint, including `.docx`, `.xlsx` and `.pptx`. The existing product already has a tested adapter, private worker topology and real DOCX conversion, so extending this path has substantially lower integration risk than adding another converter service.
 
-Official Gotenberg guidance says the `9` tag tracks the latest 9.x release and recommends an exact production release pin. PDF Studio must therefore move away from the rolling `:9` tag. For this PR, CI will first resolve and exercise the exact `9.5.1` image; an immutable digest is accepted only after that image passes both existing DOCX and new PPTX conversion tests.
+Official Gotenberg guidance says the `9` tag tracks the latest 9.x release and recommends an exact production release pin. PDF Studio must therefore move away from the rolling `:9` tag. CI #51 resolved and exercised the exact 9.5.1 image. Both DOCX and PPTX conversion plus the browser chaining journey passed, so `sha256:a0f596c2aeee6391c24ccf2953737971f13976b14d4240525a447f209185e2c8` is the accepted immutable pin for this milestone.
 
 ### Upstream/runtime dependencies that matter
 
@@ -191,4 +192,4 @@ PDF.js later:
 
 ## Image provenance and rollback rule
 
-The currently deployed Compose tag `gotenberg/gotenberg:9` is intentionally **not** accepted as an immutable production pin. The branch will first test `9.5.1`, resolve its registry digest in CI, and only then update Compose to the exact verified tag+digest. The PR must record that digest and keep rollback instructions to the prior tested reference. A registry digest found only in third-party mirrors is not sufficient evidence.
+Compose now pins `gotenberg/gotenberg:9.5.1@sha256:a0f596c2aeee6391c24ccf2953737971f13976b14d4240525a447f209185e2c8`. The digest was printed by Docker in [CI #51](https://github.com/renoukhan39-bit/pdfstudio/actions/runs/43745076741) immediately after the exact image completed Compose startup; the same job then passed worker-isolation, browser, DOCX and PPTX smoke tests. Rollback means reverting this one image reference to the prior tested immutable digest and rerunning the same integration suite. Third-party mirror digests are not accepted as provenance evidence.

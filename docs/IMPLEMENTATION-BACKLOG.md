@@ -1,3 +1,17 @@
+> **Current A-D priority order (2026-11-15, after PPTX-to-PDF):**
+> 1. **XLSX-to-PDF** — same Office adapter; validate workbook OOXML; synthetic cells/tables smoke; browser chaining; all DOCX/PPTX regressions green.
+> 2. **Office fidelity corpus** — representative fonts, tables, charts, themes, multilingual text and malformed OOXML; record expected visual/text/page results and resource ceilings.
+> 3. **Controlled HTML-to-PDF** — accept only bounded user-supplied HTML/assets under an explicit ingestion model; prove no arbitrary URL/SSRF path and no third-party preview leakage.
+> 4. **PDF-to-image** — bounded page selection/DPI/output; deterministic image dimensions and page ordering; no unbounded raster memory.
+> 5. **Image-to-PDF** — bounded JPEG/PNG inputs; preserve order/orientation; reopen output and verify page dimensions/count.
+> 6. **PDF.js viewer slice** — self-host audited 6.5.438 distribution; render current PDF, thumbnails, navigation and zoom without external requests.
+> 7. **PDF.js search/accessibility cleanup** — selectable/searchable text, rotated/mixed pages, keyboard navigation, responsive behavior, object-URL/document/worker destruction tests.
+> 8. **Native existing-text editing research** — compare real underlying-content engines/SDKs with extraction/font/layout proof and commercial license/cost analysis; no overlay substitute.
+> 9. **OCRmyPDF Stage D slice** — isolated searchable-PDF OCR with English/Hindi/Punjabi corpus, size/time bounds and text-layer verification.
+> 10. **Secure redaction + certificate-signing design gates** — choose content-removing redaction and pyHanko-style signing approaches only after forensic recovery and cryptographic validation test plans.
+>
+> **Next smallest PR:** XLSX-to-PDF only.
+
 # Initial Engineering Backlog
 
 These are proposal tickets, not claims of progress. Create/track issues for execution; never put “all features” into one issue.

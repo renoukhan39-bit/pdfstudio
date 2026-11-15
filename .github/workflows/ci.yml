@@ -146,8 +146,11 @@ jobs:
       - run: python -m pip install -e '.[dev,browser]'
       - run: python -m playwright install --with-deps chromium
       - run: docker compose up --build --detach --wait --wait-timeout 90
-      - name: Record exact tested Gotenberg image
-        run: docker image inspect gotenberg/gotenberg:9.5.1 --format '{{range .RepoDigests}}{{println .}}{{end}}'
+      - name: Verify immutable Gotenberg image
+        run: |
+          expected='gotenberg/gotenberg@sha256:a0f596c2aeee6391c24ccf2953737971f13976b14d4240525a447f209185e2c8'
+          actual="$(docker image inspect gotenberg/gotenberg:9.5.1 --format '{{index .RepoDigests 0}}')"
+          test "$actual" = "$expected"
       - name: Verify worker isolation
         run: |
           docker compose exec -T worker python - < scripts/isolation_smoke.py
@@ -160,6 +163,10 @@ jobs:
           assert list(worker['networks']) == ['processing']
           assert not worker.get('ports')
           assert worker['read_only']
+          gotenberg = config['services']['gotenberg']
+          assert list(gotenberg['networks']) == ['processing']
+          assert not gotenberg.get('ports')
+          assert gotenberg['read_only']
           PY
       - name: Browser upload, processing, download and reuse
         run: |

@@ -17,11 +17,11 @@
 - [ ] Set policy for document retention, temporary-file deletion, privacy and hosting.
 - [ ] Create PDF test corpus including scans, forms, encryption, fonts and multilingual content.
 - [ ] Isolate untrusted PDF processing and enforce strict global upload/compute limits.
-  - Progress 2026-11-14: per-request raw-body limit, upload deadline and cleanup tests implemented. Worker isolation and global concurrency/compute limits remain open.
+  - Progress 2026-11-15: per-request raw-body limit, upload deadline and cleanup tests are implemented. Compose verifies a non-root/read-only private worker with blocked public egress plus CPU/memory/PID/time limits. Cross-replica/global ingress quotas and production auth/rate limits remain open.
 
 ## Phase 1 — Working online toolkit
 
-Progress 2026-11-14: OP-01–06, OP-21, CV-10/CV-12 and SC-01/SC-02 have prototype implementations and tests; see [Core Toolkit](CORE-TOOLKIT.md). Checkboxes remain release acceptance gates, not just code-presence markers.
+Progress 2026-11-15: the 14 PDF operations plus CV-02 DOCX-to-PDF and CV-06 PPTX-to-PDF have prototype implementations and tests; see [Core Toolkit](CORE-TOOLKIT.md). Checkboxes remain release acceptance gates, not just code-presence markers.
 
 - [ ] Build accessible responsive homepage and discovery/navigation.
 - [ ] Build reliable multiple-file upload, ordering, validation and download UX.
@@ -33,7 +33,7 @@ Progress 2026-11-14: OP-01–06, OP-21, CV-10/CV-12 and SC-01/SC-02 have prototy
 - [ ] CV-07/08 PDF to images and images to PDF.
 - [ ] CV-12 Compress PDF with quality controls and objective measurements.
 - [ ] OP-16/18 Page numbers and text/image watermarks.
-- [ ] Integrate Gotenberg 9 through a tested backend adapter if appropriate.
+- [x] Integrate Gotenberg 9 through a tested private backend adapter for DOCX/PPTX, pinned to a verified 9.5.1 image digest.
 - [ ] WF-01 Build continuous workspace and revision persistence/cleanup.
 - [ ] Validate security, file-size limits, performance, reliability and user errors.
 
@@ -52,7 +52,7 @@ Progress 2026-11-14: OP-01–06, OP-21, CV-10/CV-12 and SC-01/SC-02 have prototy
 
 ## Phase 3 — Advanced and professional operations
 
-- [ ] Office → PDF: Word, PowerPoint, Excel and HTML.
+- [ ] Office → PDF: Word and PowerPoint are TESTED prototypes; Excel and controlled HTML remain.
 - [ ] PDF → Office: editable Word, Excel and PowerPoint, fidelity tested.
 - [ ] PDF → PNG/JPG/TIFF, text and Markdown.
 - [ ] OCRmyPDF integration for searchable scans, deskew and multilingual OCR.
@@ -94,7 +94,7 @@ Progress 2026-11-14: OP-01–06, OP-21, CV-10/CV-12 and SC-01/SC-02 have prototy
 1. **Original-code license/contribution policy:** repo is public but original code has no approved license. Obtain owner decision before accepting broad third-party contributions.
 2. **Native PDF editing engine:** commercial SDK decision or substantial independent R&D. PDF.js, pdf-lib and drawing new text over old text are insufficient.
 3. **Imported starter code:** audit PDFClear/Folio before importing; do not blindly combine full repositories or incompatible copyleft/noncommercial projects.
-4. **Public deployment safety:** current prototype uses a PDF parser in-process. Add sandbox isolation, ingress body limits, CPU/memory/time quotas, auth/rate limiting and malware/abuse protection before exposing it broadly.
+4. **Public deployment safety:** Compose isolates the processing worker/Gotenberg and enforces ingress/body/resource limits, but this is not a perfect hostile-document sandbox. Add production TLS, auth/rate limiting, cross-replica quotas, retention controls, image scanning and abuse controls before broad exposure.
 5. **Hosting and policy:** domain, cloud provider, credentials, storage and document deletion/privacy policy are not approved.
 6. **Clean dependency validation:** run CI with the pinned releases and review vulnerabilities before deploying.
 
