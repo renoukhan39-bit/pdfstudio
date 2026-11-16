@@ -1,5 +1,7 @@
 # START HERE — A Complete Onboarding Guide
 
+> **Long-chat continuity:** Start with [PROJECT-CONTINUITY.md](PROJECT-CONTINUITY.md), then use [CHAT-ARCHIVE-2026-11-16.md](CHAT-ARCHIVE-2026-11-16.md) if you need the preserved master prompt and visible project-chat excerpts. Treat those files as a snapshot and always verify the current GitHub branch/PR/CI state.
+
 **Welcome to PDF Studio. You do not need to read any previous chat.** This page explains what the project is, what is real today and what to do next.
 
 ## Five-minute understanding
@@ -11,6 +13,7 @@
 - **Truth about current status:** An **fourteen-tool working prototype** now exists with a FastAPI backend and a basic frontend; it is not security-hardened or deployed. See [Prototype](PROTOTYPE.md) and [Implementation Status](IMPLEMENTATION-STATUS.md).
 
 ## Where decisions are written
+0. [Project Continuity](PROJECT-CONTINUITY.md) — durable project state, live-work snapshot, research, links, next tasks and AI handoff.
 1. [Product Vision](PRODUCT-VISION.md) — positioning, audience, principles and success criteria.
 2. [Competitive Benchmarks](COMPETITIVE-BENCHMARKS.md) — what we are measuring ourselves against.
 3. [Feature Inventory](FEATURE-INVENTORY.md) — the intended feature set (all proposed unless tested).
