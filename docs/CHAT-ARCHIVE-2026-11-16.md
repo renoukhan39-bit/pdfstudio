@@ -715,10 +715,10 @@ Response/action:
 
 - Create a durable machine-readable continuity document in GitHub.
 - Create this visible-chat archive.
-- Create a human-readable Word `.docx` snapshot.
+- Create a human-readable Word-compatible `.rtf` snapshot.
 - Link continuity from `AGENTS.md`, `README.md`, and `docs/START-HERE.md`.
 - Use a documentation-only branch/PR rather than mixing this archive into the focused PPTX PR.
-- Keep Markdown authoritative for future AI/code-search use.
+- Keep Markdown authoritative for future AI/code-search use; RTF is provided for Word/human reading.
 
 ---
 
