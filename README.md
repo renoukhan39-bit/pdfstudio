@@ -12,6 +12,8 @@
 
 ## Start here
 
+> **Continuing from an AI/chat session?** Read [Project Continuity / AI Handoff](docs/PROJECT-CONTINUITY.md) first. It records the latest known architecture, research decisions, open PR/CI evidence, risks, next tasks, links and available project-chat history. Then verify live GitHub state before coding.
+
 | I am... | Read this first |
 | --- | --- |
 | New developer or reviewer | [Start Here](docs/START-HERE.md) and [Contributing](CONTRIBUTING.md) |
@@ -20,7 +22,7 @@
 | PDF specialist | [Feature Inventory](docs/FEATURE-INVENTORY.md) and [Quality Plan](docs/QUALITY-AND-TESTING.md) |
 | License reviewer | [Licensing and Dependencies](docs/LICENSING-AND-DEPENDENCIES.md) |
 | Project manager | [Roadmap](docs/ROADMAP.md) and [Implementation Backlog](docs/IMPLEMENTATION-BACKLOG.md) |
-| Codex contributor | [AGENTS.md](AGENTS.md) and [Codex Playbook](docs/CODEX-PLAYBOOK.md) |
+| Codex / AI contributor | [Project Continuity](docs/PROJECT-CONTINUITY.md), [AGENTS.md](AGENTS.md) and [Codex Playbook](docs/CODEX-PLAYBOOK.md) |
 
 ## Current work scope: A–D only
 
