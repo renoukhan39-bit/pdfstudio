@@ -1,5 +1,7 @@
 # Instructions for Codex and AI Coding Agents
 
+> **Continuity first:** Before any substantial work, read [Project Continuity / AI Handoff](docs/PROJECT-CONTINUITY.md) and verify its snapshot against live GitHub. The companion [visible chat archive](docs/CHAT-ARCHIVE-2026-11-16.md) preserves the master build request and available project-chat context so a long ChatGPT thread is not required.
+
 Read this file, [Start Here](docs/START-HERE.md), [Architecture](docs/ARCHITECTURE.md), [Licensing](docs/LICENSING-AND-DEPENDENCIES.md), and [Quality](docs/QUALITY-AND-TESTING.md) before changing code.
 
 ## Mission and scope
