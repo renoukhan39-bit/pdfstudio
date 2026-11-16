@@ -837,9 +837,9 @@ The companion visible-chat archive is:
 
 `docs/CHAT-ARCHIVE-2026-11-16.md`
 
-A human-readable Word snapshot is also stored as:
+A human-readable Word-compatible snapshot is also stored as:
 
-`docs/PROJECT-CONTINUITY.docx`
+`docs/PROJECT-CONTINUITY.rtf`
 
 Future updates should keep the Markdown version authoritative because GitHub, code search and coding agents can parse it directly.
 
