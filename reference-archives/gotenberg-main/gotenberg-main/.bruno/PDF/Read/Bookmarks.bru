@@ -1,0 +1,16 @@
+meta {
+  name: Bookmarks
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/forms/pdf/bookmarks
+  body: multipartForm
+  auth: none
+}
+
+body:multipart-form {
+  files: @file(../test/integration/testdata/page_1_with_bookmarks.pdf)
+  ~password:
+}

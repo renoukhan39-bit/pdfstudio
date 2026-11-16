@@ -1,0 +1,74 @@
+from typing import BinaryIO
+
+import click
+from pyhanko.cli._ctx import PasswordPrompter
+from pyhanko.pdf_utils import crypt
+from pyhanko.pdf_utils.crypt import AuthStatus
+from pyhanko.pdf_utils.decode_limits import DecodeLimits
+from pyhanko.pdf_utils.incremental_writer import IncrementalPdfFileWriter
+
+
+class OpenForSigning:
+    def __init__(
+        self,
+        infile_path: str,
+        lenient: bool,
+        prompter: PasswordPrompter,
+        decode_limits: DecodeLimits | None = None,
+    ):
+        self.infile_path = infile_path
+        self.lenient = lenient
+        self.prompter = prompter
+        self.decode_limits = decode_limits
+        self.handle: BinaryIO | None = None
+
+    def __enter__(self) -> IncrementalPdfFileWriter:
+        self.handle = infile = open(self.infile_path, 'rb')
+        writer = IncrementalPdfFileWriter(
+            infile, strict=not self.lenient, decode_limits=self.decode_limits
+        )
+
+        # TODO make this an option higher up the tree
+        if writer.prev.encrypted:
+            sh = writer.prev.security_handler
+            if isinstance(sh, crypt.StandardSecurityHandler):
+                pdf_pass = self.prompter.prompt_for_password(
+                    prompt=f'Password for encrypted file \'{self.infile_path}\': '
+                )
+                auth = writer.encrypt(pdf_pass)
+                if auth.status == AuthStatus.FAILED:
+                    raise click.ClickException(
+                        "Invalid password for encrypted file"
+                    )
+            elif isinstance(sh, crypt.PubKeySecurityHandler):
+                raise click.ClickException(
+                    "Public-key document encryption is not supported in the CLI"
+                )
+            else:  # pragma: nocover
+                raise click.ClickException(
+                    "Input file appears to be encrypted, but appropriate "
+                    "credentials are not available."
+                )
+        return writer
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.handle.close()
+
+
+def open_for_signing(
+    infile_path: str,
+    lenient: bool,
+    prompter: PasswordPrompter,
+    decode_limits: DecodeLimits | None = None,
+):
+    return OpenForSigning(
+        infile_path, lenient, prompter=prompter, decode_limits=decode_limits
+    )
+
+
+def get_text_params(ctx):
+    text_params = None
+    stamp_url = ctx.obj.stamp_url
+    if stamp_url is not None:
+        text_params = {'url': stamp_url}
+    return text_params

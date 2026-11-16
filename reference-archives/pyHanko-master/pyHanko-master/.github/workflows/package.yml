@@ -1,0 +1,88 @@
+name: Package flow
+
+on:
+  workflow_call:
+    inputs:
+      package:
+        type: string
+        description: "package being released (subdir of pkgs/)"
+      wheel:
+        type: string
+        description: "wheel being released"
+      version:
+        type: string
+        description: "version to release"
+      environment:
+        type: string
+        description: "environment to release in"
+permissions:
+  actions: read
+  contents: read
+env:
+  UV_NO_MANAGED_PYTHON: 1
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    permissions:
+      actions: read
+      contents: read
+      # provenance attestations are signed using the workflow's OIDC identity
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+      - name: Install uv
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          enable-cache: true
+      - name: Install build tools
+        run: uv sync --group release
+      - name: Apply package version for release
+        if: inputs.package != ''
+        run: |
+          uv run python dev/apply_version.py ${{ inputs.package }} ${{ inputs.version }}
+          git diff
+      - name: Build release wheels
+        run: uv build --all-packages --wheel
+      - name: Include internal testing commons in sdist for pyhanko & pyhanko-cli
+        run: |
+          uv run python dev/include_pyhanko_testing_commons.py
+          git diff
+      - name: Build release sdists
+        run: uv build --all-packages --sdist
+      - name: Upload dist artifacts
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: pyhanko-dist
+          path: dist/
+      - name: Attest build provenance
+        # Attesting here rather than in the calling workflow keeps provenance
+        # generation inside a reusable workflow, which is what allows the
+        # resulting attestation to be verified against a pinned signer workflow.
+        if: inputs.package != ''
+        id: attest
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: dist/${{ inputs.wheel }}-${{ inputs.version }}*
+      - name: Stage provenance bundle under a stable name
+        if: inputs.package != ''
+        run: cp "$BUNDLE_PATH" provenance.sigstore.json
+        env:
+          BUNDLE_PATH: ${{ steps.attest.outputs.bundle-path }}
+      - name: Upload provenance bundle
+        if: inputs.package != ''
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: pyhanko-provenance
+          path: provenance.sigstore.json
+      - name: Upload dist artifacts for release
+        if: inputs.package != ''
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: pyhanko-release-dist
+          path: dist/${{ inputs.wheel }}-${{ inputs.version }}*

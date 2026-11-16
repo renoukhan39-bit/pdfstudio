@@ -1,0 +1,394 @@
+package api
+
+import (
+	"bufio"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"log/slog"
+	"os"
+	"path/filepath"
+	"runtime"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/gotenberg/gotenberg/v9/pkg/gotenberg"
+)
+
+// fakeLokEnv makes the test binary act as lok's long-running mode, so the
+// process code runs against the real pipe protocol without LibreOffice.
+const fakeLokEnv = "GOTENBERG_TEST_FAKE_LOK"
+
+func TestMain(m *testing.M) {
+	if os.Getenv(fakeLokEnv) != "" {
+		fakeLok()
+		os.Exit(0)
+	}
+
+	os.Exit(m.Run())
+}
+
+// fakeLok answers each request according to the input filename: "ok" writes
+// the output, "badpass", "unreadable", "destroyed" and "panic" fail with lok's
+// codes, "hang" never answers, "hog" allocates until it is killed, and "crash"
+// exits. It records its arguments next to its profile.
+func fakeLok() {
+	for i, arg := range os.Args {
+		if arg == "--user-profile-path" && i+1 < len(os.Args) {
+			_ = os.WriteFile(filepath.Join(os.Args[i+1], "args"), []byte(strings.Join(os.Args[1:], " ")), 0o600)
+		}
+	}
+
+	in := bufio.NewReader(os.Stdin)
+	out := json.NewEncoder(os.Stdout)
+
+	for {
+		line, err := in.ReadBytes('\n')
+		if err != nil {
+			return
+		}
+
+		var req lokRequest
+		_ = json.Unmarshal(line, &req)
+
+		name := strings.TrimSuffix(filepath.Base(req.InputPath), filepath.Ext(req.InputPath))
+		if req.InputPath == "" {
+			name = ""
+		}
+
+		switch name {
+		case "":
+			_ = out.Encode(lokResponse{Code: lokCodeInvalidRequest, Error: "inputPath and outputPath are required"})
+		case "ok":
+			_ = os.WriteFile(req.OutputPath, line, 0o600)
+			_ = out.Encode(lokResponse{Success: true})
+		case "badpass":
+			_ = out.Encode(lokResponse{Code: lokCodeInvalidPassword, Error: "failed to load document: wrong document password"})
+		case "unreadable":
+			_ = out.Encode(lokResponse{Code: lokCodeLoadFailed, Error: "failed to load document"})
+		case "hang":
+			time.Sleep(time.Hour)
+		case "crash":
+			os.Exit(3)
+		case "hog":
+			var held [][]byte
+			for {
+				chunk := make([]byte, 16<<20)
+				for i := 0; i < len(chunk); i += 4096 {
+					chunk[i] = 1
+				}
+				held = append(held, chunk)
+				time.Sleep(10 * time.Millisecond)
+			}
+		case "destroyed":
+			_ = out.Encode(lokResponse{Code: lokCodeOfficeDestroyed, Error: "office destroyed"})
+		case "panic":
+			_ = out.Encode(lokResponse{Code: lokCodePanic, Error: "panic during conversion: boom"})
+		}
+	}
+}
+
+func startFakeLok(t *testing.T) *libreOfficeProcess {
+	t.Helper()
+	t.Setenv(fakeLokEnv, "1")
+
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	p := newLibreOfficeProcess(libreOfficeArguments{
+		binPath:      "/opt/libreoffice/program/soffice.bin",
+		lokBinPath:   exe,
+		startTimeout: 10 * time.Second,
+	}).(*libreOfficeProcess)
+
+	logger := slog.New(slog.DiscardHandler)
+
+	err = p.Start(context.Background(), logger)
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+
+	t.Cleanup(func() { _ = p.Stop(logger) })
+
+	return p
+}
+
+func TestLibreOfficeProcess(t *testing.T) {
+	p := startFakeLok(t)
+	logger := slog.New(slog.DiscardHandler)
+	dir := t.TempDir()
+
+	args, err := os.ReadFile(filepath.Join(p.userProfileDirPath, "args"))
+	if err != nil {
+		t.Fatalf("read the fake lok arguments: %v", err)
+	}
+
+	want := "--long-running --libreoffice-program-path /opt/libreoffice/program --user-profile-path " + p.userProfileDirPath
+	if string(args) != want {
+		t.Errorf("lok arguments = %q, want %q", args, want)
+	}
+
+	xcu, err := os.ReadFile(filepath.Join(p.userProfileDirPath, "user", "registrymodifications.xcu"))
+	if err != nil || !strings.Contains(string(xcu), "BlockUntrustedRefererLinks") {
+		t.Errorf("the profile was not seeded before lok started: %v", err)
+	}
+
+	output := filepath.Join(dir, "out.pdf")
+	options := DefaultOptions()
+	options.PdfFormats = PdfFormats{PdfA: PdfA2b}
+
+	err = p.pdf(context.Background(), logger, filepath.Join(dir, "ok.csv"), output, options)
+	if err != nil {
+		t.Fatalf("pdf: %v", err)
+	}
+
+	var sent lokRequest
+	data, err := os.ReadFile(output)
+	if err != nil || json.Unmarshal(data, &sent) != nil {
+		t.Fatalf("the fake lok wrote no request: %v", err)
+	}
+
+	if sent.PdfVersion != 2 || !sent.EmbedStandardFonts || !sent.DisableCalcHeader || !sent.UpdateIndexes {
+		t.Errorf("request = %+v, want PDF/A-2b with embedded fonts, the CSV header off and indexes updated", sent)
+	}
+
+	for _, tc := range []struct {
+		input string
+		want  error
+	}{
+		{"badpass.docx", ErrInvalidPassword},
+		{"unreadable.docx", ErrLoadFailed},
+	} {
+		err = p.pdf(context.Background(), logger, filepath.Join(dir, tc.input), output, DefaultOptions())
+		if !errors.Is(err, tc.want) {
+			t.Errorf("pdf(%s) = %v, want %v", tc.input, err, tc.want)
+		}
+	}
+
+	if !p.Healthy(logger) {
+		t.Fatal("failed conversions left lok unhealthy")
+	}
+}
+
+func TestNewLokRequest_Paper(t *testing.T) {
+	options := DefaultOptions()
+
+	req, err := newLokRequest("in.docx", "out.pdf", options)
+	if err != nil || req.PaperFormat != lokPaperFormatUnset {
+		t.Fatalf("no paper size: %+v, %v, want the document's own size", req, err)
+	}
+
+	options.PaperWidth, options.PaperHeight = 210/25.4, 297/25.4
+
+	req, err = newLokRequest("in.docx", "out.pdf", options)
+	if err != nil || req.PaperFormat != lokPaperFormatUser || req.PaperWidth != 21000 || req.PaperHeight != 29700 {
+		t.Fatalf("A4: %+v, %v, want a custom 21000x29700 size", req, err)
+	}
+}
+
+// lok runs macros when enableMacros is true, so the request must say false
+// rather than rely on lok's default.
+func TestNewLokRequest_DisablesMacrosExplicitly(t *testing.T) {
+	req, err := newLokRequest("in.docx", "out.pdf", DefaultOptions())
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	b, err := json.Marshal(req)
+	if err != nil {
+		t.Fatalf("marshal request: %v", err)
+	}
+	if !strings.Contains(string(b), `"enableMacros":false`) {
+		t.Fatalf("expected an explicit enableMacros:false, got %s", b)
+	}
+}
+
+// The request leaves the watermark rotation out when the client sets none, so
+// that LibreOffice picks the angle, and sends any angle set, 0 included.
+func TestNewLokRequest_WatermarkRotation(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		angle *int
+		want  string
+	}{
+		{name: "unset", angle: nil, want: ""},
+		{name: "horizontal", angle: new(0), want: `"nativeWatermarkRotateAngle":0`},
+		{name: "45 degrees", angle: new(450), want: `"nativeWatermarkRotateAngle":450`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			options := DefaultOptions()
+			options.NativeWatermarkRotateAngle = tc.angle
+
+			req, err := newLokRequest("in.docx", "out.pdf", options)
+			if err != nil {
+				t.Fatalf("expected no error, got %v", err)
+			}
+
+			b, err := json.Marshal(req)
+			if err != nil {
+				t.Fatalf("marshal request: %v", err)
+			}
+
+			if tc.want == "" {
+				if strings.Contains(string(b), "nativeWatermarkRotateAngle") {
+					t.Fatalf("expected no nativeWatermarkRotateAngle, got %s", b)
+				}
+				return
+			}
+
+			if !strings.Contains(string(b), tc.want) {
+				t.Fatalf("expected %s, got %s", tc.want, b)
+			}
+		})
+	}
+}
+
+// A lok that answers office_destroyed or panic is still running, but unusable:
+// the conversion must be retried on a restarted lok.
+func TestLibreOfficeProcess_UnusableLokIsTerminated(t *testing.T) {
+	for _, input := range []string{"destroyed.docx", "panic.docx"} {
+		t.Run(input, func(t *testing.T) {
+			p := startFakeLok(t)
+			logger := slog.New(slog.DiscardHandler)
+			dir := t.TempDir()
+
+			err := p.pdf(context.Background(), logger, filepath.Join(dir, input), filepath.Join(dir, "out.pdf"), DefaultOptions())
+			if !errors.Is(err, ErrCrashed) {
+				t.Fatalf("pdf(%s) = %v, want %v", input, err, ErrCrashed)
+			}
+
+			if p.Healthy(logger) {
+				t.Fatal("lok still reported healthy, so the supervisor would not restart it")
+			}
+		})
+	}
+}
+
+// --libreoffice-enable-macros reaches lok on every request, in both states.
+func TestLibreOfficeProcess_EnableMacros(t *testing.T) {
+	for _, enableMacros := range []bool{false, true} {
+		t.Run(fmt.Sprint(enableMacros), func(t *testing.T) {
+			p := startFakeLok(t)
+			p.arguments.enableMacros = enableMacros
+			dir := t.TempDir()
+			output := filepath.Join(dir, "out.pdf")
+
+			err := p.pdf(context.Background(), slog.New(slog.DiscardHandler), filepath.Join(dir, "ok.docx"), output, DefaultOptions())
+			if err != nil {
+				t.Fatalf("pdf: %v", err)
+			}
+
+			var sent lokRequest
+			data, err := os.ReadFile(output)
+			if err != nil || json.Unmarshal(data, &sent) != nil {
+				t.Fatalf("the fake lok wrote no request: %v", err)
+			}
+			if sent.EnableMacros != enableMacros {
+				t.Errorf("enableMacros = %t, want %t", sent.EnableMacros, enableMacros)
+			}
+		})
+	}
+}
+
+func TestLibreOfficeProcess_InvalidPdfFormats(t *testing.T) {
+	p := startFakeLok(t)
+
+	options := DefaultOptions()
+	options.PdfFormats = PdfFormats{PdfA: "PDF/A-1a"}
+
+	err := p.pdf(context.Background(), slog.New(slog.DiscardHandler), "ok.docx", "out.pdf", options)
+	if !errors.Is(err, ErrInvalidPdfFormats) {
+		t.Fatalf("pdf = %v, want ErrInvalidPdfFormats", err)
+	}
+}
+
+// TestLibreOfficeProcess_TimeoutKills pins that a cancelled conversion kills
+// lok, so that its late answer can never reach the next request.
+func TestLibreOfficeProcess_TimeoutKills(t *testing.T) {
+	p := startFakeLok(t)
+	logger := slog.New(slog.DiscardHandler)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+
+	err := p.pdf(ctx, logger, "hang.docx", "out.pdf", DefaultOptions())
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("pdf = %v, want DeadlineExceeded", err)
+	}
+
+	select {
+	case <-p.exited:
+	case <-time.After(5 * time.Second):
+		t.Fatal("lok still runs after a cancelled conversion")
+	}
+
+	if p.Healthy(logger) {
+		t.Fatal("a killed lok reports healthy")
+	}
+}
+
+func TestLibreOfficeProcess_Crash(t *testing.T) {
+	p := startFakeLok(t)
+	logger := slog.New(slog.DiscardHandler)
+
+	err := p.pdf(context.Background(), logger, "crash.docx", "out.pdf", DefaultOptions())
+	if !errors.Is(err, ErrCrashed) {
+		t.Fatalf("pdf = %v, want ErrCrashed", err)
+	}
+
+	if p.Healthy(logger) {
+		t.Fatal("a crashed lok reports healthy")
+	}
+}
+
+func TestLibreOfficeProcess_MemoryLimit(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("the memory limit reads /proc")
+	}
+
+	p := startFakeLok(t)
+	p.arguments.maxMemory = 64 << 20
+	logger := slog.New(slog.DiscardHandler)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	err := p.pdf(ctx, logger, "hog.docx", "out.pdf", DefaultOptions())
+	if !errors.Is(err, ErrMemoryLimitExceeded) {
+		t.Fatalf("pdf = %v, want ErrMemoryLimitExceeded", err)
+	}
+
+	if errors.Is(err, ErrCrashed) {
+		t.Fatal("a conversion over the memory limit reads as a crash, which the API retries")
+	}
+
+	if p.Healthy(logger) {
+		t.Fatal("a lok killed for its memory reports healthy")
+	}
+
+	if got := libreofficeErrorType(err); got != "libreoffice_memory_limit" {
+		t.Errorf("error type = %q, want libreoffice_memory_limit", got)
+	}
+}
+
+// A lok whose idle memory is over the limit is not killed between
+// conversions: only a conversion is watched.
+func TestLibreOfficeProcess_MemoryLimitWatchesConversionsOnly(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("the memory limit reads /proc")
+	}
+
+	p := startFakeLok(t)
+	p.arguments.maxMemory = 1
+	logger := slog.New(slog.DiscardHandler)
+
+	time.Sleep(5 * gotenberg.MemoryWatchInterval)
+
+	if !p.Healthy(logger) {
+		t.Fatal("an idle lok was killed")
+	}
+}

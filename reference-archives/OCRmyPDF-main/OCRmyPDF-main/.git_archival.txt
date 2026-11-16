@@ -1,0 +1,4 @@
+node: 86a5e723ea2b612e8df4a647056b0ebf3b3c97a5
+node-date: 2026-11-15T17:57:05-07:00
+describe-name: v17.14.2
+ref-names: HEAD -> main, tag: v17.14.2

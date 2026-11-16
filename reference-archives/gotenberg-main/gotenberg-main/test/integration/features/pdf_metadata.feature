@@ -1,0 +1,173 @@
+@pdf
+@pdf-metadata
+Feature: /forms/pdf/{set-metadata|metadata}
+
+  Scenario: POST /forms/pdf/{set-metadata|metadata} (Single PDF)
+    Given I have a default Gotenberg container
+    When I make a "POST" request to Gotenberg at the "/forms/pdf/set-metadata" endpoint with the following form data and header(s):
+      | files                     | testdata/page_1.pdf | file   |
+      | title                     | Sample              | field  |
+      | author                    | Julien Neuhart      | field  |
+      | subject                   | Sample              | field  |
+      | keywords                  | first, second       | field  |
+      | creator                   | Gotenberg           | field  |
+      | producer                  | Gotenberg           | field  |
+      | Gotenberg-Output-Filename | foo                 | header |
+    Then the response status code should be 200
+    Then the response header "Content-Type" should be "application/pdf"
+    Then there should be 1 PDF(s) in the response
+    Then the "foo.pdf" PDF should have the "Title" metadata set to "Sample"
+    Then the "foo.pdf" PDF should have the "Author" metadata set to "Julien Neuhart"
+    When I make a "POST" request to Gotenberg at the "/forms/pdf/metadata" endpoint with the following form data and header(s):
+      | files | teststore/foo.pdf | file |
+    Then the response status code should be 200
+    Then the response header "Content-Type" should be "application/json"
+    Then the response body should match JSON:
+      """
+      {
+        "foo.pdf": {
+          "title": "Sample",
+          "author": "Julien Neuhart",
+          "subject": "Sample",
+          "keywords": "first, second",
+          "creator": "Gotenberg",
+          "producer": "Gotenberg"
+        }
+      }
+      """
+
+  Scenario: POST /forms/pdf/metadata (Many PDFs)
+    Given I have a default Gotenberg container
+    When I make a "POST" request to Gotenberg at the "/forms/pdf/metadata" endpoint with the following form data and header(s):
+      | files | testdata/titled_alpha.pdf | file |
+      | files | testdata/titled_bravo.pdf | file |
+    Then the response status code should be 200
+    Then the response header "Content-Type" should be "application/json"
+    Then the response body should match JSON:
+      """
+      {
+        "titled_alpha.pdf": {
+          "title": "Alpha"
+        },
+        "titled_bravo.pdf": "ignore"
+      }
+      """
+
+  # A PDF without an /Info dictionary or an XMP packet answers an empty object.
+  # The expected string is not a whole JSON document, which Prettier would
+  # reformat.
+  Scenario: POST /forms/pdf/metadata (No Metadata)
+    Given I have a default Gotenberg container
+    When I make a "POST" request to Gotenberg at the "/forms/pdf/metadata" endpoint with the following form data and header(s):
+      | files | testdata/form.pdf | file |
+    Then the response status code should be 200
+    Then the response header "Content-Type" should be "application/json"
+    Then the response body should contain string:
+      """
+      "form.pdf":{}
+      """
+
+  Scenario: POST /forms/pdf/pipe (Metadata After Merge)
+    Given I have a default Gotenberg container
+    When I make a "POST" request to Gotenberg at the "/forms/pdf/pipe" endpoint with the following form data and header(s):
+      | files                     | testdata/titled_alpha.pdf                             | file   |
+      | files                     | testdata/titled_bravo.pdf                             | file   |
+      | stages                    | [{"op":"merge"},{"op":"set-metadata","title":"Both"}] | field  |
+      | Gotenberg-Output-Filename | foo                                                   | header |
+    Then the response status code should be 200
+    Then the "foo.pdf" PDF should have the "Title" metadata set to "Both"
+
+  Scenario: POST /forms/pdf/set-metadata (Bad Request)
+    Given I have a default Gotenberg container
+    When I make a "POST" request to Gotenberg at the "/forms/pdf/pipe" endpoint with the following form data and header(s):
+      | files  | testdata/page_1.pdf                                  | file  |
+      | stages | [{"op":"set-metadata","Copyright":"Julien Neuhart"}] | field |
+    Then the response status code should be 400
+    Then the response body should match string:
+      """
+      Invalid form data: form field 'stages' is invalid: stage 0: set-metadata: unknown option "Copyright"
+      """
+
+  Scenario: POST /forms/pdf/metadata (Bad Request)
+    Given I have a default Gotenberg container
+    When I make a "POST" request to Gotenberg at the "/forms/pdf/metadata" endpoint with the following form data and header(s):
+      | Gotenberg-Output-Filename | foo | header |
+    Then the response status code should be 400
+    Then the response body should match string:
+      """
+      Invalid form data: no form file found for extensions: [.pdf]
+      """
+
+  Scenario: POST /forms/pdf/metadata (Routes Disabled)
+    Given I have a Gotenberg container with the following environment variable(s):
+      | PDF_DISABLE_ROUTES | true |
+    When I make a "POST" request to Gotenberg at the "/forms/pdf/metadata" endpoint with the following form data and header(s):
+      | files | testdata/page_1.pdf | file |
+    Then the response status code should be 404
+
+  @webhook
+  Scenario: POST /forms/pdf/metadata (Webhook)
+    Given I have a default Gotenberg container
+    Given I have a webhook server
+    When I make a "POST" request to Gotenberg at the "/forms/pdf/metadata" endpoint with the following form data and header(s):
+      | files                        | testdata/titled_alpha.pdf | file   |
+      | Gotenberg-Webhook-Url        | {helper}/webhook          | header |
+      | Gotenberg-Webhook-Events-Url | {helper}/webhook/events   | header |
+    Then the response status code should be 400
+    Then the response body should match string:
+      """
+      The 'Gotenberg-Webhook-Url' and 'Gotenberg-Webhook-Events-Url' headers do not apply to this route: it answers JSON directly, which a webhook cannot deliver. Send the request without them
+      """
+
+  # See: https://github.com/gotenberg/gotenberg/issues/1500.
+  Scenario: POST /forms/pdf/metadata (Long Filename)
+    Given I have a default Gotenberg container
+    When I make a "POST" request to Gotenberg at the "/forms/pdf/metadata" endpoint with the following form data and header(s):
+      | files | testdata/Longitudinell_jämförelse_mellan_laserkirurgi_och_strålbehandling_gällande_röstkvalitet_och_självskattad_kommunikation_upp_till_två_år_efter_tidig_stämbandscancer_i_ett_randomiserat_kontrollerat_försök.pdf | file |
+    Then the response status code should be 200
+    Then the response header "Content-Type" should be "application/json"
+
+  Scenario: POST /forms/pdf/metadata (Truncated PDF)
+    Given I have a default Gotenberg container
+    When I make a "POST" request to Gotenberg at the "/forms/pdf/metadata" endpoint with the following form data and header(s):
+      | files | testdata/truncated.pdf | file |
+    Then the response status code should be 400
+    Then the response body should match string:
+      """
+      Stage 'metadata' failed on 'truncated.pdf': not a valid PDF document: trailer missing /Root
+      """
+
+  Scenario: POST /forms/pdf/set-metadata (Invalid Dates)
+    Given I have a default Gotenberg container
+    When I make a "POST" request to Gotenberg at the "/forms/pdf/set-metadata" endpoint with the following form data and header(s):
+      | files        | testdata/page_1.pdf | file  |
+      | creationDate | 2026-10-01          | field |
+    Then the response status code should be 400
+    Then the response body should match string:
+      """
+      Invalid form data: set-metadata: "creationDate" must be a PDF date, such as "D:20261001090000Z" (D: then the year, month, day, hours, minutes and seconds, and Z for UTC), got "2026-10-01"
+      """
+    When I make a "POST" request to Gotenberg at the "/forms/pdf/set-metadata" endpoint with the following form data and header(s):
+      | files   | testdata/page_1.pdf | file  |
+      | modDate | D:20261301          | field |
+    Then the response status code should be 400
+    Then the response body should match string:
+      """
+      Invalid form data: set-metadata: "modDate" must be a PDF date, such as "D:20261001090000Z" (D: then the year, month, day, hours, minutes and seconds, and Z for UTC), got "D:20261301"
+      """
+    When I make a "POST" request to Gotenberg at the "/forms/pdf/set-metadata" endpoint with the following form data and header(s):
+      | files                     | testdata/page_1.pdf | file   |
+      | creationDate              | D:20261001090000Z   | field  |
+      | Gotenberg-Output-Filename | foo                 | header |
+    Then the response status code should be 200
+    When I make a "POST" request to Gotenberg at the "/forms/pdf/metadata" endpoint with the following form data and header(s):
+      | files | teststore/foo.pdf | file |
+    Then the response status code should be 200
+    Then the response body should match JSON:
+      """
+      {
+        "foo.pdf": {
+          "creationDate": "D:20261001090000Z"
+        }
+      }
+      """

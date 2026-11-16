@@ -1,0 +1,5 @@
+ignore: 
+    - "**/test_*.py"
+    - "docs"
+    - "**/__main__.py"
+    - "**/_saslprep.py"  # this is mostly vendored code

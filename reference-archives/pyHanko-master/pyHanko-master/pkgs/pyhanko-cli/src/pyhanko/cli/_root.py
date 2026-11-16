@@ -1,0 +1,174 @@
+import itertools
+import logging
+from collections.abc import Iterable
+
+import click
+import yaml
+from pyhanko.cli._ctx import CLIContext
+from pyhanko.cli.config import CLIRootConfig, parse_cli_config_from_dict
+from pyhanko.cli.plugin_api import (
+    SIGNING_PLUGIN_ENTRY_POINT_GROUP,
+    SIGNING_PLUGIN_REGISTRY,
+)
+from pyhanko.cli.runtime import DEFAULT_CONFIG_FILE, logging_setup
+from pyhanko.cli.version import __version__ as cli_version
+from pyhanko.config.logging import LogConfig, parse_logging_config
+from pyhanko.version import __version__ as lib_version
+
+__all__ = ['cli_root']
+
+logger = logging.getLogger(__name__)
+
+full_version = f"{lib_version} (CLI {cli_version})"
+
+
+@click.group()
+@click.version_option(prog_name='pyHanko', version=full_version)
+@click.option(
+    '--config',
+    help=(
+        f'YAML file to load configuration from[default: {DEFAULT_CONFIG_FILE}]'
+    ),
+    required=False,
+    type=str,
+)
+@click.option(
+    '--verbose',
+    help='Run in verbose mode',
+    required=False,
+    default=False,
+    type=bool,
+    is_flag=True,
+)
+@click.option(
+    '--no-plugins',
+    help='Disable non-builtin plugin loading',
+    type=bool,
+    is_flag=True,
+)
+@click.pass_context
+def _root(ctx: click.Context, config, verbose, no_plugins):
+    config_text = None
+    if config is None:
+        try:
+            with open(DEFAULT_CONFIG_FILE, 'r', encoding='utf-8') as f:
+                config_text = f.read()
+            config = DEFAULT_CONFIG_FILE
+        except FileNotFoundError:
+            pass
+        except OSError as e:
+            raise click.ClickException(
+                f"Failed to read {DEFAULT_CONFIG_FILE}: {e!s}"
+            )
+    else:
+        try:
+            with open(config, 'r', encoding='utf-8') as f:
+                config_text = f.read()
+        except OSError as e:
+            raise click.ClickException(
+                f"Failed to read configuration: {e!s}",
+            )
+
+    ctx.ensure_object(CLIContext)
+    ctx_obj: CLIContext = ctx.obj
+    cfg: CLIRootConfig | None = None
+    if config_text is not None:
+        cfg = load_root_config(yaml.safe_load(config_text), no_plugins)
+        ctx_obj.config = cfg.config
+        log_config = cfg.log_config
+    else:
+        # grab the default
+        log_config = parse_logging_config({})
+
+    from .commands.signing import register
+
+    plugins_to_register = _load_plugins(cfg, plugins_enabled=not no_plugins)
+    register(plugins_to_register)
+
+    if verbose:
+        # override the root logger's logging level, but preserve the output
+        root_logger_config = log_config[None]
+        log_config[None] = LogConfig(
+            level=logging.DEBUG, output=root_logger_config.output
+        )
+    else:
+        # use the root logger's output settings to populate the default
+        log_output = log_config[None].output
+        # Revinfo fetch logs -> filter by default
+        log_config['pyhanko_certvalidator.fetchers'] = LogConfig(
+            level=logging.WARNING, output=log_output
+        )
+
+    logging_setup(log_config, verbose)
+
+    if verbose:
+        logger.debug("Running with --verbose")
+    if config_text is not None:
+        logger.debug(f'Finished reading configuration from {config}.')
+    else:
+        logger.debug('There was no configuration to parse.')
+
+
+def load_root_config(config_dict, only_default_plugins=False) -> CLIRootConfig:
+
+    cfg = parse_cli_config_from_dict(config_dict)
+
+    from .commands.signing import register
+
+    plugins_to_register = _load_plugins(
+        cfg, plugins_enabled=not only_default_plugins
+    )
+    register(plugins_to_register)
+
+    return cfg
+
+
+def _load_plugins(root_config: CLIRootConfig | None, plugins_enabled: bool):
+    from importlib import metadata
+
+    # we always load the default ones
+    to_load = [
+        'pyhanko.cli.commands.signing.pkcs11_cli:PKCS11Plugin',
+        'pyhanko.cli.commands.signing.simple:PKCS12Plugin',
+        'pyhanko.cli.commands.signing.simple:PemderPlugin',
+    ]
+
+    eps_from_metadata: Iterable[metadata.EntryPoint] = []
+    if plugins_enabled:
+        if root_config is not None:
+            to_load += [str(mod) for mod in root_config.plugin_endpoints]
+
+        eps_from_metadata = metadata.entry_points(
+            group=SIGNING_PLUGIN_ENTRY_POINT_GROUP
+        )
+
+    # noinspection PyArgumentList
+    to_load_as_endpoints: Iterable[metadata.EntryPoint] = [
+        metadata.EntryPoint(
+            name='',
+            value=v,
+            group=SIGNING_PLUGIN_ENTRY_POINT_GROUP,
+        )
+        for v in to_load
+    ]
+    resulting_plugins = list(SIGNING_PLUGIN_REGISTRY)
+    seen = {type(x) for x in SIGNING_PLUGIN_REGISTRY}
+    for ep in itertools.chain(to_load_as_endpoints, eps_from_metadata):
+        plugin_cls = ep.load()
+        if not isinstance(plugin_cls, type):
+            click.echo(
+                click.style(
+                    f"Plugins must be defined as references to classes with a "
+                    f"nullary init function, but '{ep.value}' is "
+                    f"a {type(plugin_cls)}. Disregarding...",
+                    bold=True,
+                )
+            )
+            continue
+        if plugin_cls not in seen:
+            seen.add(plugin_cls)
+            resulting_plugins.append(plugin_cls())
+    return resulting_plugins
+
+
+cli_root: click.Group = _root

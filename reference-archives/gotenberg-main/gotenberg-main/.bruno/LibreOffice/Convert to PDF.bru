@@ -1,0 +1,79 @@
+meta {
+  name: Convert to PDF
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/forms/libreoffice/convert
+  body: multipartForm
+  auth: none
+}
+
+body:multipart-form {
+  files: @file(../test/integration/testdata/page_1.docx)
+  ~password:
+  ~landscape: false
+  ~paperSize: A4
+  ~paperWidth: 8.27in
+  ~paperHeight: 11.69in
+  ~nativePages:
+  ~updateIndexes: false
+  ~exportFormFields: true
+  ~allowDuplicateFieldNames: false
+  ~nativeBookmarks: true
+  ~exportBookmarksToPdfDestination: false
+  ~exportPlaceholders: false
+  ~exportNotes: false
+  ~exportNotesPages: false
+  ~exportOnlyNotesPages: false
+  ~exportNotesInMargin: false
+  ~convertOooTargetToPdfTarget: false
+  ~exportLinksRelativeFsys: false
+  ~exportHiddenSlides: false
+  ~skipEmptyPages: false
+  ~addOriginalDocumentAsStream: false
+  ~singlePage: false
+  ~nativeTaggedPdf: false
+  ~initialView: outline
+  ~initialPage: 1
+  ~magnification: fitWidth
+  ~zoom: 100
+  ~pageLayout: singlePage
+  ~resizeWindowToInitialPage: false
+  ~centerWindow: false
+  ~openInFullScreenMode: false
+  ~displayPDFDocumentTitle: true
+  ~hideViewerMenubar: false
+  ~hideViewerToolbar: false
+  ~hideViewerWindowControls: false
+  ~useTransitionEffects: true
+  ~openBookmarkLevels: -1
+  ~nativeLosslessImageCompression: false
+  ~nativeQuality: 90
+  ~nativeReduceImageResolution: false
+  ~nativeMaxImageResolution: 300
+  ~nativeWatermarkText:
+  ~nativeWatermarkColor: #ff0000
+  ~nativeWatermarkFontSize: 48
+  ~nativeWatermarkRotation: 45
+  ~nativeWatermarkFont: Helvetica
+  ~nativeTiledWatermarkText:
+  ~nativePdfa: PDF/A-2b
+  ~nativePdfua: PDF/UA-1
+  ~stages: [{"op":"set-metadata","title":"My title"},{"op":"remediate","profile":"PDF/A-2b"},{"op":"render","pages":"1"}]
+}
+
+headers {
+  ~Gotenberg-Output-Filename: my-file
+  ~Gotenberg-Webhook-Url: http://localhost:8080/webhook
+  ~Gotenberg-Webhook-Events-Url: http://localhost:8080/webhook/events
+  ~Gotenberg-Webhook-Method: POST
+  ~Gotenberg-Webhook-Extra-Http-Headers: {"X-Custom":"value"}
+}
+
+docs {
+  Enable `paperWidth` and `paperHeight` together, or `paperSize` alone: one side without the other answers 400.
+
+  `nativePdfa` PDF/A-4 with `nativePdfua` answers 400: LibreOffice claims PDF/UA-2 without meeting it. Use a `remediate` stage with the pair instead, such as `[{"op":"remediate","profile":["PDF/A-4","PDF/UA-2"]}]`.
+}

@@ -1,0 +1,133 @@
+[project]
+name = "pyhanko-suite"
+description = "Tools for stamping and signing PDF files"
+authors = [{ name = "Matthias Valvekens", email = "dev@mvalvekens.be" }]
+maintainers = [{ name = "Matthias Valvekens", email = "dev@mvalvekens.be" }]
+license = "MIT"
+requires-python = ">=3.11"
+version = "0.0.0"
+dependencies = [
+    "pytest-asyncio>=0.26.0",
+]
+
+[project.readme]
+file = "README.md"
+content-type = "text/markdown"
+
+[project.urls]
+Homepage = "https://github.com/MatthiasValvekens/pyHanko"
+Documentation = "https://docs.pyhanko.eu/"
+Changes = "https://docs.pyhanko.eu/en/latest/changelog.html"
+"Source Code" = "https://github.com/MatthiasValvekens/pyHanko"
+"Issue Tracker" = "https://github.com/MatthiasValvekens/pyHanko/issues"
+
+[tool.mypy]
+packages = """
+    pyhanko.cli,\
+    pyhanko.config,\
+    pyhanko.keys,\
+    pyhanko.pdf_utils,\
+    pyhanko.sign,\
+    pyhanko.stamp,\
+    pyhanko_certvalidator"""
+exclude = ".*tests.*"
+
+[[tool.mypy.overrides]]
+module = [
+    "asn1crypto.*",
+    "pkcs11.*",
+    "uritools.*",
+    "barcode.*",
+    "PIL.*",
+    "uharfbuzz.*",
+    "fontTools.*",
+    "qrcode.*",
+    "oscrypto.*",
+]
+ignore_missing_imports = true
+
+[tool.uv]
+package = false
+
+[dependency-groups]
+mypy = [
+    "mypy",
+    "types-requests",
+    "types-python-dateutil",
+    "types-PyYAML",
+    "types-tzlocal",
+    "lxml-stubs",
+    "typing_extensions;python_version<'3.11'",
+]
+docs = [
+    "sphinx",
+    "sphinx-rtd-theme",
+]
+docs-build = [
+    { include-group = "docs" },
+    "pyhanko[opentype,qr,image-support,pkcs11,async-http,etsi]",
+    "pyhanko-certvalidator",
+    "pyhanko-cli",
+]
+docs-doctest = [
+    { include-group = "docs-build" },
+    "common-test-utils",
+    "certomancer[web-api,web-api-async]>=0.15.1",
+    "freezegun>=1.1.0",
+]
+release = ["setuptools>=80.8.0", "tomlkit>=0.15.0", "requests>=2.34.2"]
+lint = ["ruff"]
+provenance-check = ["sigstore>=4.4.0", "pyasn1", "cryptography"]
+dev = [
+    { include-group = "docs" },
+    { include-group = "mypy" },
+    { include-group = "lint" },
+    { include-group = "release" },
+    { include-group = "provenance-check" },
+]
+
+[tool.uv.workspace]
+members = ["pkgs/*", "internal/*"]
+
+[tool.isort]
+src_paths = ["pkgs/*/src", "internal/*/src"]
+
+[tool.ruff]
+line-length = 80
+exclude = ["docs/*.py", "dev/*.py"]
+
+[tool.ruff.format]
+quote-style = "preserve"
+
+[tool.ruff.lint]
+extend-select = [
+    "F",  # pyflakes
+    "I",  # isort
+]
+ignore = [
+    # We deliberately raise ValueError (not TypeError) for invalid input
+    # types; switching would be a behaviour change for existing callers.
+    "TRY004",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"**/*test*/**/*.py" = [
+    "B018",
+    "DTZ",
+    "B008",
+    "RUF012",
+    "ASYNC230",
+    "LOG015",
+]
+"asn1_types.py" = ["RUF012"]
+# certomancer's label types are immutable string wrappers, so sharing one
+# instance across the doctest environment specs is harmless.
+"docs_testing.py" = ["RUF009"]
+
+
+[tool.uv.sources]
+pyhanko = { workspace = true }
+pyhanko-certvalidator = { workspace = true }
+pyhanko-cli = { workspace = true }
+common-test-utils = { workspace = true }
+integration-tests = { workspace = true }

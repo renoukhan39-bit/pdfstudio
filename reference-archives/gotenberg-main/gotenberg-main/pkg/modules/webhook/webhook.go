@@ -1,0 +1,137 @@
+package webhook
+
+import (
+	"fmt"
+	"sync/atomic"
+	"time"
+
+	"github.com/dlclark/regexp2/v2"
+	flag "github.com/spf13/pflag"
+
+	"github.com/gotenberg/gotenberg/v9/pkg/gotenberg"
+	"github.com/gotenberg/gotenberg/v9/pkg/modules/api"
+)
+
+func init() {
+	gotenberg.MustRegisterModule(new(Webhook))
+}
+
+// Webhook is a module that provides a middleware for uploading output files
+// to any destinations in an asynchronous fashion.
+type Webhook struct {
+	enableSyncMode         bool
+	allowList              []*regexp2.Regexp
+	denyList               []*regexp2.Regexp
+	denyPrivateIPs         bool
+	denyPublicIPs          bool
+	enableEnvironmentProxy bool
+	maxRetry               int
+	retryMinWait           time.Duration
+	retryMaxWait           time.Duration
+	clientTimeout          time.Duration
+	asyncCount             atomic.Int64
+	disable                bool
+}
+
+// Descriptor returns an [Webhook]'s module descriptor.
+func (w *Webhook) Descriptor() gotenberg.ModuleDescriptor {
+	return gotenberg.ModuleDescriptor{
+		ID: "webhook",
+		FlagSet: func() *flag.FlagSet {
+			fs := flag.NewFlagSet("webhook", flag.ExitOnError)
+			fs.Bool("webhook-enable-sync-mode", false, "Enable synchronous mode for the webhook feature")
+			fs.StringSlice("webhook-allow-list", []string{}, `Set the allowed URLs for the webhook feature using regular expressions - supports multiple values. A match bypasses --webhook-deny-private-ips (WEBHOOK_DENY_PRIVATE_IPS) and --webhook-deny-public-ips (WEBHOOK_DENY_PUBLIC_IPS), so terminate the host or the pattern also matches suffix hosts, for example ^https?://internal\.svc(:|/|$)`)
+			fs.StringSlice("webhook-deny-list", []string{}, "Set the denied URLs for the webhook feature using regular expressions - supports multiple values")
+			fs.Bool("webhook-deny-private-ips", false, "Reject webhook URLs whose host resolves to a non-public IP address (loopback, RFC1918, link-local, unique-local). Enable on deployments that accept untrusted webhook destinations to mitigate SSRF against internal services")
+			fs.Bool("webhook-deny-public-ips", false, "Reject webhook URLs whose host resolves to a public IP address. Enable on air-gapped or data-governed deployments to prevent callbacks from leaving a private network")
+			fs.Bool("webhook-enable-environment-proxy", false, "Route webhook callbacks through the proxy defined by the standard HTTP_PROXY, HTTPS_PROXY, and NO_PROXY variables, including credentials")
+			fs.Int("webhook-max-retry", 4, "Set the maximum number of retries for the webhook feature")
+			fs.Duration("webhook-retry-min-wait", time.Duration(1)*time.Second, "Set the minimum duration to wait before trying to call the webhook again")
+			fs.Duration("webhook-retry-max-wait", time.Duration(30)*time.Second, "Set the maximum duration to wait before trying to call the webhook again")
+			fs.Duration("webhook-client-timeout", time.Duration(30)*time.Second, "Set the time limit for requests to the webhook")
+			fs.Bool("webhook-disable", false, "Disable the webhook feature")
+
+			return fs
+		}(),
+		New: func() gotenberg.Module { return new(Webhook) },
+	}
+}
+
+// Provision sets the module properties.
+func (w *Webhook) Provision(ctx *gotenberg.Context) error {
+	flags := ctx.ParsedFlags()
+	w.enableSyncMode = flags.MustBool("webhook-enable-sync-mode")
+	w.allowList = flags.MustRegexpSlice("webhook-allow-list")
+	w.denyList = flags.MustRegexpSlice("webhook-deny-list")
+	w.denyPrivateIPs = flags.MustBool("webhook-deny-private-ips")
+	w.denyPublicIPs = flags.MustBool("webhook-deny-public-ips")
+	w.enableEnvironmentProxy = flags.MustBool("webhook-enable-environment-proxy")
+	w.maxRetry = flags.MustInt("webhook-max-retry")
+	w.retryMinWait = flags.MustDuration("webhook-retry-min-wait")
+	w.retryMaxWait = flags.MustDuration("webhook-retry-max-wait")
+	w.clientTimeout = flags.MustDuration("webhook-client-timeout")
+	w.disable = flags.MustBool("webhook-disable")
+	w.asyncCount.Store(0)
+
+	return nil
+}
+
+// minDeliveryTimeout is the floor for [Webhook.deliveryTimeout], so that a
+// deliberately tiny --webhook-client-timeout (env WEBHOOK_CLIENT_TIMEOUT) never
+// leaves a delivery with no budget at all.
+const minDeliveryTimeout = 1 * time.Second
+
+// deliveryTimeout bounds one webhook delivery including its retries. It is the
+// worst case a correctly behaving remote produces: one client timeout per
+// attempt, plus the capped wait between attempts.
+//
+// A delivery runs after the handler returned, so it cannot borrow the
+// conversion deadline. Without this budget it would have none, because
+// [retryablehttp] builds its requests on [context.Background].
+func (w *Webhook) deliveryTimeout() time.Duration {
+	timeout := w.clientTimeout*time.Duration(w.maxRetry+1) + w.retryMaxWait*time.Duration(w.maxRetry)
+	if timeout < minDeliveryTimeout {
+		return minDeliveryTimeout
+	}
+
+	return timeout
+}
+
+// Middlewares returns the middleware.
+func (w *Webhook) Middlewares() ([]api.Middleware, error) {
+	if w.disable {
+		return nil, nil
+	}
+
+	return []api.Middleware{
+		webhookMiddleware(w),
+	}, nil
+}
+
+// AsyncCount returns the number of asynchronous requests.
+func (w *Webhook) AsyncCount() int64 {
+	return w.asyncCount.Load()
+}
+
+// Validate checks the module's configuration.
+func (w *Webhook) Validate() error {
+	if !w.enableEnvironmentProxy {
+		return nil
+	}
+
+	err := gotenberg.ValidateEnvironmentProxyVariables()
+	if err != nil {
+		return fmt.Errorf("--webhook-enable-environment-proxy is set: %w", err)
+	}
+
+	return nil
+}
+
+// Interface guards.
+var (
+	_ gotenberg.Module        = (*Webhook)(nil)
+	_ gotenberg.Provisioner   = (*Webhook)(nil)
+	_ gotenberg.Validator     = (*Webhook)(nil)
+	_ api.MiddlewareProvider  = (*Webhook)(nil)
+	_ api.AsynchronousCounter = (*Webhook)(nil)
+)

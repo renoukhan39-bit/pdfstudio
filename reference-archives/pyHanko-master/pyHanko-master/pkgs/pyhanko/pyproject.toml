@@ -1,0 +1,130 @@
+[build-system]
+requires = ["setuptools>=80.8.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pyHanko"
+description = "Tools for stamping and signing PDF files"
+authors = [{ name = "Matthias Valvekens", email = "dev@mvalvekens.be" }]
+maintainers = [{ name = "Matthias Valvekens", email = "dev@mvalvekens.be" }]
+license = "MIT"
+license-files = ["LICENSE", "src/pyhanko/pdf_utils/LICENSE.PyPDF2"]
+keywords = [
+    "signature",
+    "pdf",
+    "pades",
+    "digital-signature",
+    "pkcs11",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Programming Language :: Python :: 3.15",
+    "Topic :: Security :: Cryptography",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+requires-python = ">=3.11"
+dependencies = [
+    "asn1crypto>=1.5.1",
+    "tzlocal>=4.3",
+    "pyhanko-certvalidator",
+    "aiohttp>=3.9,<3.15",
+    "cryptography>=48.0.0",
+    "lxml>=5.4.0",
+]
+version = "0.0.0.dev1"
+
+
+[project.readme]
+file = "README.md"
+content-type = "text/markdown"
+
+[project.urls]
+Homepage = "https://github.com/MatthiasValvekens/pyHanko"
+Documentation = "https://docs.pyhanko.eu/"
+Changes = "https://docs.pyhanko.eu/en/latest/changelog.html"
+"Source Code" = "https://github.com/MatthiasValvekens/pyHanko"
+"Issue Tracker" = "https://github.com/MatthiasValvekens/pyHanko/issues"
+
+[project.optional-dependencies]
+opentype = [
+    "fonttools>=4.33.3",
+    # uharfbuzz sometimes includes breaking changes, so
+    # we set an explicit range
+    "uharfbuzz>=0.25.0,<0.58.0",
+]
+qr = ["qrcode>=7.3.1"]
+image-support = [
+    # Only tested systematically on 8.x,
+    # but we allow 7.2.x to support system PIL on Ubuntu
+    "Pillow>=7.2.0",
+    "python-barcode==0.16.1"
+]
+pkcs11 = ["python-pkcs11~=0.9.3"]
+async-http = [
+    # kept for compatibility reasons, empty now
+]
+requests = ["requests>=2.31.0"]
+etsi = [
+    "xsdata>=24.4,<27.0",
+    "signxml>=5.1.0"
+]
+
+[dependency-groups]
+testing-base = [
+    "common-test-utils",
+    "pytest>=6.1.1",
+    "freezegun>=1.1.0",
+    "certomancer[web-api-async]>=0.16.0",
+    "pytest-cov>=4.0,<7.2",
+    "pytest-asyncio>=1.1.0,<2.0",
+    "pytest-aiohttp>=1.0.4,<1.2.0",
+]
+testing = [
+    { include-group = "testing-base" },
+    "common-test-utils[csc]",
+    "requests>=2.31.0",
+]
+testing-pkcs11-setup = [
+    "certomancer[pkcs11]>=0.16.0",
+]
+
+
+[tool.setuptools]
+include-package-data = false
+package-dir = { "" = "src" }
+
+
+[tool.setuptools.package-data]
+pyhanko = ["py.typed"]
+"pyhanko.sign.validation.qualified" = ["lotl-certs/*.cert.pem"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+log_format = "%(asctime)s %(levelname)s %(message)s"
+log_date_format = "%Y-%m-%d %H:%M:%S"
+log_cli = true
+log_cli_level = "INFO"
+asyncio_mode = "strict"
+asyncio_default_fixture_loop_scope = "function"
+markers = [
+    "nosmoke: exclude from smoke test runs",
+    "legacy: tests for legacy APIs",
+    "hsm: run test on HSM platform",
+    "algo: indicate signing algorithm used in test",
+    "required_mechanism: require a specific PKCS#11 mechanism"
+]
+strict = true
+
+[tool.coverage.run]
+omit = ["*docs*", "*test*", "*venv*", "setup.py", "_saslprep.py"]
+
+[tool.coverage.report]
+exclude_lines = ["pragma: no cover", "pragma: nocover", "raise AssertionError", "raise NotImplementedError", "TYPE_CHECKING", "^\\s*\\.\\.\\."]
+precision = 2

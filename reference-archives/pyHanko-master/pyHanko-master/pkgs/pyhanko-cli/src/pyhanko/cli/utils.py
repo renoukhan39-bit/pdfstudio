@@ -1,0 +1,86 @@
+import logging
+
+import click
+from pyhanko.pdf_utils.decode_limits import DecodeLimits
+from pyhanko.sign import fields
+
+logger = logging.getLogger("cli")
+
+
+def _warn_empty_passphrase():
+    click.echo(
+        click.style(
+            "WARNING: passphrase is empty. If you intended to use an "
+            "unencrypted private key, use --no-pass instead.",
+            bold=True,
+        )
+    )
+
+
+readable_file = click.Path(exists=True, readable=True, dir_okay=False)
+writable_file = click.Path(writable=True, dir_okay=False)
+
+
+def _decode_limits_from_flag(_ctx, _param, no_decode_limits: bool):
+    if no_decode_limits:
+        return DecodeLimits.for_trusted_input()
+    return DecodeLimits.for_untrusted_input()
+
+
+no_decode_limits_option = click.option(
+    '--no-decode-limits',
+    'decode_limits',
+    help=(
+        'do not limit the amount of data decompressed from the input PDF '
+        '(only use this with trusted input)'
+    ),
+    is_flag=True,
+    default=False,
+    callback=_decode_limits_from_flag,
+)
+
+
+def _index_page(page):
+    try:
+        page_ix = int(page)
+        if not page_ix:
+            raise ValueError
+        if page_ix > 0:
+            # subtract 1 from the total, since that's what people expect
+            # when referring to a page index
+            return page_ix - 1
+        else:
+            # keep negative indexes as-is.
+            return page_ix
+    except ValueError:
+        raise click.ClickException(
+            f"Sig field parameter PAGE should be a nonzero integer, not {page}."
+        )
+
+
+def parse_field_location_spec(
+    spec: str, require_full_spec: bool = True
+) -> tuple[str, fields.SigFieldSpec | None]:
+    try:
+        page, box, name = spec.split('/')
+    except ValueError:
+        if require_full_spec:
+            raise click.ClickException(
+                "Sig field spec should be of the form PAGE/X1,Y1,X2,Y2/NAME."
+            )
+        else:
+            # interpret the entire string as a field name
+            return spec, None
+
+    page_ix = _index_page(page)
+
+    try:
+        x1, y1, x2, y2 = map(int, box.split(','))
+    except ValueError:
+        raise click.ClickException(
+            "Sig field parameters X1,Y1,X2,Y2 should be four integers."
+        )
+
+    return name, fields.SigFieldSpec(
+        sig_field_name=name, on_page=page_ix, box=(x1, y1, x2, y2)
+    )

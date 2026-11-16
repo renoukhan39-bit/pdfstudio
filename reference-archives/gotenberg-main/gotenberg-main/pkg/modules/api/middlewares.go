@@ -1,0 +1,636 @@
+package api
+
+import (
+	"context"
+	"crypto/subtle"
+	"errors"
+	"fmt"
+	"log/slog"
+	"net/http"
+	"runtime/debug"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/coreos/go-oidc/v3/oidc"
+	"github.com/google/uuid"
+	"github.com/labstack/echo/v5"
+	"github.com/labstack/echo/v5/middleware"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/propagation"
+	"go.opentelemetry.io/otel/trace"
+
+	"github.com/gotenberg/gotenberg/v9/pkg/gotenberg"
+	semconvutil "github.com/gotenberg/gotenberg/v9/pkg/gotenberg/semconv"
+)
+
+var (
+	// ErrAsyncProcess happens when a handler or middleware handles a request
+	// in an asynchronous fashion.
+	ErrAsyncProcess = errors.New("async process")
+
+	// ErrNoOutputFile happens when a handler or middleware has already written
+	// the response itself, so no output file must be sent.
+	ErrNoOutputFile = errors.New("no output file")
+)
+
+// ParseError parses an error and returns the corresponding HTTP status and
+// HTTP message.
+func ParseError(err error) (int, string) {
+	// [echo.StatusCode] also matches the router's ErrNotFound and
+	// ErrMethodNotAllowed sentinels, which Echo v5 no longer models as
+	// [echo.HTTPError]. Matching that type alone would let every unrouted
+	// request fall through to a 500.
+	if code := echo.StatusCode(err); code != 0 {
+		return code, http.StatusText(code)
+	}
+
+	if errors.Is(err, context.DeadlineExceeded) {
+		return http.StatusServiceUnavailable, "The request exceeded the time limit. Increase it with --api-timeout, or reduce the workload."
+	}
+
+	if errors.Is(err, gotenberg.ErrFiltered) {
+		return http.StatusForbidden, http.StatusText(http.StatusForbidden)
+	}
+
+	if errors.Is(err, gotenberg.ErrMaximumQueueSizeExceeded) {
+		return http.StatusTooManyRequests, "The request queue is full. Retry shortly, or raise the limit with --chromium-max-queue-size or --libreoffice-max-queue-size."
+	}
+
+	var httpErr HttpError
+	if errors.As(err, &httpErr) {
+		return httpErr.HttpError()
+	}
+
+	// Default 500 status code.
+	return http.StatusInternalServerError, http.StatusText(http.StatusInternalServerError)
+}
+
+// statusClientClosedRequest is the non-standard 499 status (nginx convention)
+// recorded when the client aborts the request before it completes. It keeps
+// such outcomes out of the 5xx range in the access log and the metrics.
+const statusClientClosedRequest = 499
+
+// requestCanceled reports whether err is the result of the client aborting the
+// request rather than a server-side failure. It requires both that err wraps
+// [context.Canceled] and that the request context itself was canceled, so a
+// context.Canceled originating elsewhere still surfaces as an internal error.
+// A server-side timeout is [context.DeadlineExceeded], mapped to 503 by
+// [ParseError], and is deliberately not treated as a client abort.
+// See https://github.com/gotenberg/gotenberg/issues/1627.
+func requestCanceled(c *echo.Context, err error) bool {
+	return errors.Is(err, context.Canceled) && errors.Is(c.Request().Context().Err(), context.Canceled)
+}
+
+// httpErrorHandler is the centralized HTTP error handler. It parses the error,
+// returns a response as "text/plain; charset=UTF-8".
+func httpErrorHandler() echo.HTTPErrorHandler {
+	return func(c *echo.Context, err error) {
+		logger := c.Get("logger").(*slog.Logger)
+
+		if requestCanceled(c, err) {
+			// The client is gone, so writing a body would only fail and add
+			// noise. Record the status so the access log and metrics classify
+			// it as a client abort rather than an internal error.
+			c.Response().WriteHeader(statusClientClosedRequest)
+			return
+		}
+
+		status, message := ParseError(err)
+		if echo.StatusCode(err) == status {
+			message = routingErrorMessage(c, status, message)
+		}
+		c.Response().Header().Add(echo.HeaderContentType, echo.MIMETextPlainCharsetUTF8)
+
+		err = c.String(status, message)
+		if err != nil {
+			logger.ErrorContext(c.Request().Context(), fmt.Sprintf("send error response: %s", err.Error()))
+		}
+	}
+}
+
+// routingErrorMessage words the answer to a request that matches no route, or
+// no method of its route, so that it names what to fix rather than repeating
+// the status text. It returns message for any other status.
+func routingErrorMessage(c *echo.Context, status int, message string) string {
+	path := c.Request().URL.EscapedPath()
+
+	switch status {
+	case http.StatusNotFound:
+		return fmt.Sprintf("The route '%s' does not exist. Check the path, and that this image includes the module that serves it", path)
+	case http.StatusMethodNotAllowed:
+		allow := c.Response().Header().Get(echo.HeaderAllow)
+		if allow == "" {
+			return fmt.Sprintf("The route '%s' does not accept the %s method", path, c.Request().Method)
+		}
+		return fmt.Sprintf("The route '%s' does not accept the %s method. Use one of: %s", path, c.Request().Method, allow)
+	default:
+		return message
+	}
+}
+
+// AnswersDirectlyKey is the [echo.Context] key that marks the request of a
+// route that answers directly. See [Route.AnswersDirectly].
+const AnswersDirectlyKey = "answersDirectly"
+
+// answersDirectlyMiddleware marks the request of a route that answers
+// directly. See [Route.AnswersDirectly].
+func answersDirectlyMiddleware() echo.MiddlewareFunc {
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c *echo.Context) error {
+			c.Set(AnswersDirectlyKey, true)
+			return next(c)
+		}
+	}
+}
+
+// RouteAnswersDirectly reports whether the route of c writes its response
+// itself rather than producing output files. See [Route.AnswersDirectly].
+func RouteAnswersDirectly(c *echo.Context) bool {
+	answers, _ := c.Get(AnswersDirectlyKey).(bool)
+	return answers
+}
+
+// latencyMiddleware sets the start time in the [echo.Context] under
+// "startTime". Its value will be used later to calculate request latency.
+//
+//	startTime := c.Get("startTime").(time.Time)
+func latencyMiddleware() echo.MiddlewareFunc {
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c *echo.Context) error {
+			// First piece for calculating the latency.
+			startTime := time.Now()
+			c.Set("startTime", startTime)
+
+			// Call the next middleware in the chain.
+			return next(c)
+		}
+	}
+}
+
+// rootPathMiddleware sets the root path in the [echo.Context] under
+// "rootPath". Its value may be used to skip a middleware execution based on a
+// request URI.
+//
+//	rootPath := c.Get("rootPath").(string)
+//	healthURI := fmt.Sprintf("%s/health", rootPath)
+//
+//	// Skip the middleware if it's the health check URI.
+//	if c.Request().RequestURI == healthURI {
+//	  // Call the next middleware in the chain.
+//	  return next(c)
+//	}
+func rootPathMiddleware(rootPath string) echo.MiddlewareFunc {
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c *echo.Context) error {
+			c.Set("rootPath", rootPath)
+			// Call the next middleware in the chain.
+			return next(c)
+		}
+	}
+}
+
+// outputFilenameMiddleware sets the output filename in the [echo.Context]
+// under "outputFilename".
+//
+//	outputFilename := c.Get("outputFilename").(string)
+func outputFilenameMiddleware() echo.MiddlewareFunc {
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c *echo.Context) error {
+			filename := c.Request().Header.Get("Gotenberg-Output-Filename")
+			// Keep only the last path segment, so that a caller cannot name an
+			// output file after a path.
+			// See https://github.com/gotenberg/gotenberg/issues/1227.
+			//
+			// [filepath.Base] alone is not enough: on Linux it does not treat a
+			// backslash as a separator, and this value reaches archive entry
+			// names. Use the same sanitizer as the other caller-supplied
+			// filenames.
+			if filename != "" {
+				filename = SanitizeFilename(filename)
+			}
+			c.Set("outputFilename", filename)
+			// Call the next middleware in the chain.
+			return next(c)
+		}
+	}
+}
+
+// versionHeaderMiddleware sets the Gotenberg-Version response header, so that
+// clients learn which version handled a request without calling the version
+// route. Run it after authentication, so that it discloses nothing the version
+// route does not, or before the router when no authentication is configured, so
+// that the answers to an unknown route and a wrong method carry it too. It sets
+// the header before the handler runs, so error responses carry it too.
+// See https://github.com/gotenberg/gotenberg/issues/1693.
+func versionHeaderMiddleware() echo.MiddlewareFunc {
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c *echo.Context) error {
+			c.Response().Header().Set("Gotenberg-Version", gotenberg.Version)
+			// Call the next middleware in the chain.
+			return next(c)
+		}
+	}
+}
+
+// telemetryMiddleware manages telemetry. It sets the correlation ID in the
+// [echo.Context] under "correlationId".
+//
+//	correlationIdHeader := c.Get("correlationIdHeader").(string)
+//	correlationId := c.Get("correlationId").(string)
+//
+// serverName is the server address of the spans, and metricServerName that
+// of the metrics, which must not come from the request: a client picks its
+// Host header, and each new value would start new time series.
+func telemetryMiddleware(logger *slog.Logger, serverName, metricServerName, correlationIdHeader string, disableTelemetryForPaths []string) echo.MiddlewareFunc {
+	meter := gotenberg.Meter()
+	semconvSrv := semconvutil.NewHTTPServer(meter)
+
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c *echo.Context) error {
+			startTime := c.Get("startTime").(time.Time)
+			rootPath := c.Get("rootPath").(string)
+
+			// Echo v5 returns the bare [http.ResponseWriter] from
+			// Context.Response, so unwrap it to read the recorded status and
+			// size below.
+			response, errUnwrap := echo.UnwrapResponse(c.Response())
+			if errUnwrap != nil {
+				return fmt.Errorf("unwrap response: %w", errUnwrap)
+			}
+
+			request := c.Request()
+			savedCtx := request.Context()
+			defer func() {
+				request = request.WithContext(savedCtx)
+				c.SetRequest(request)
+			}()
+
+			path := c.Request().URL.Path
+			if path == "" {
+				path = "/"
+			}
+
+			// Evaluate if we should skip telemetry for this path.
+			skipTelemetry := false
+			for _, path := range disableTelemetryForPaths {
+				URI := fmt.Sprintf("%s%s", rootPath, path)
+				if c.Request().RequestURI == URI {
+					skipTelemetry = true
+					break
+				}
+			}
+
+			if skipTelemetry {
+				c.Set("logger", slog.New(slog.DiscardHandler))
+
+				// The route is neither logged nor traced, but its answer still
+				// carries the correlation ID.
+				correlationId := request.Header.Get(correlationIdHeader)
+				if correlationId == "" {
+					correlationId = uuid.NewString()
+				}
+				c.Set("correlationIdHeader", correlationIdHeader)
+				c.Set("correlationId", correlationId)
+				c.Response().Header().Set(correlationIdHeader, correlationId)
+
+				err := next(c)
+				if err != nil {
+					c.Echo().HTTPErrorHandler(c, err)
+				}
+				return nil
+			}
+
+			correlationId := request.Header.Get(correlationIdHeader)
+			if correlationId == "" {
+				correlationId = uuid.NewString()
+			}
+			c.Set("correlationIdHeader", correlationIdHeader)
+			c.Set("correlationId", correlationId)
+
+			ctx := otel.GetTextMapPropagator().Extract(savedCtx, propagation.HeaderCarrier(request.Header))
+
+			opts := []trace.SpanStartOption{
+				trace.WithAttributes(
+					semconvSrv.RequestTraceAttrs(serverName, request, semconvutil.RequestTraceAttrsOpts{})...,
+				),
+				trace.WithSpanKind(trace.SpanKindServer),
+			}
+
+			// The router runs after this middleware: the span starts with the
+			// method alone, and gets its route once the request is routed.
+			tracer := gotenberg.Tracer()
+			ctx, span := tracer.Start(ctx, semconvSrv.SpanName(request), opts...)
+			defer span.End()
+
+			otel.GetTextMapPropagator().Inject(ctx, propagation.HeaderCarrier(c.Response().Header()))
+
+			c.Response().Header().Set(correlationIdHeader, correlationId)
+			c.SetRequest(c.Request().WithContext(ctx))
+
+			appLogger := logger.
+				With(slog.String("log_type", "application")).
+				With(slog.String("correlation_id", correlationId))
+
+			loggerName := strings.ReplaceAll(
+				strings.ReplaceAll(c.Request().URL.Path, rootPath, ""),
+				"/",
+				"",
+			)
+
+			c.Set("logger", appLogger.With(slog.String("logger", loggerName)))
+
+			// Call the next middleware in the chain.
+			err := next(c)
+			finishTime := time.Now()
+
+			// The router sets the pattern of the route it matched on the
+			// request. A request that matches none keeps an empty one, so that
+			// a path a client makes up never reaches the span name, http.route
+			// or the metrics.
+			routed := c.Request()
+			span.SetName(semconvSrv.SpanName(routed))
+			if routed.Pattern != "" {
+				span.SetAttributes(semconvSrv.Route(routed.Pattern))
+			}
+
+			status := response.Status
+			canceled := false
+			if err != nil {
+				canceled = requestCanceled(c, err)
+				if canceled {
+					status = statusClientClosedRequest
+				} else {
+					parsedStatus, _ := ParseError(err)
+					status = parsedStatus
+				}
+
+				c.Echo().HTTPErrorHandler(c, err)
+			}
+
+			// Per the HTTP semconv, a server span fails on a 5xx alone, and
+			// its error.type is the status code. A 4xx leaves the status
+			// unset, without a description. The error message goes in the
+			// description, not in an attribute of the error.* namespace.
+			code, description := semconvSrv.Status(status)
+			if code == codes.Error {
+				gotenberg.SpanErrorType(span, strconv.Itoa(status))
+				if err != nil {
+					description = err.Error()
+				}
+			}
+			span.SetStatus(code, description)
+			span.SetAttributes(semconvSrv.ResponseTraceAttrs(semconvutil.ResponseTelemetry{
+				StatusCode: status,
+				WriteBytes: response.Size,
+			})...)
+
+			// Pick the level and message before building the record: err.Error
+			// walks a joined error chain, and the nil-error branch has no use
+			// for it.
+			level := slog.LevelInfo
+			msg := "request handled"
+
+			switch {
+			case err == nil:
+			case canceled:
+				// A client abort is expected, not a server failure; keep it
+				// visible but out of the error stream.
+				msg = err.Error()
+			default:
+				level = slog.LevelError
+				msg = err.Error()
+			}
+
+			// One record rather than a chain of With calls. Each With clones
+			// the whole handler chain, and this logger fans out to a JSON
+			// handler and an OpenTelemetry bridge that is wired in even when no
+			// exporter is configured, so a 14-deep chain clones both sub-chains
+			// 14 times to emit a single line.
+			latency := finishTime.Sub(startTime)
+
+			logger.LogAttrs(ctx, level, msg,
+				slog.String("log_type", "access"),
+				slog.String("correlation_id", correlationId),
+				slog.String("remote_ip", c.RealIP()),
+				slog.String("host", c.Request().Host),
+				slog.String("uri", c.Request().RequestURI),
+				slog.String("method", c.Request().Method),
+				slog.String("path", path),
+				slog.String("referer", c.Request().Referer()),
+				slog.String("user_agent", c.Request().UserAgent()),
+				slog.Int("status", response.Status),
+				slog.Int64("latency", int64(latency)),
+				slog.String("latency_human", latency.String()),
+				slog.Int64("bytes_in", c.Request().ContentLength),
+				slog.Int64("bytes_out", response.Size),
+			)
+
+			semconvSrv.RecordMetrics(ctx, semconvutil.ServerMetricData{
+				ServerName:      metricServerName,
+				ResponseSize:    response.Size,
+				Req:             request,
+				StatusCode:      status,
+				Route:           routed.Pattern,
+				RequestSize:     request.ContentLength,
+				RequestDuration: time.Since(startTime),
+			})
+
+			return nil
+		}
+	}
+}
+
+// basicAuthMiddleware manages basic authentication.
+func basicAuthMiddleware(username, password string) echo.MiddlewareFunc {
+	return middleware.BasicAuth(func(c *echo.Context, u string, p string) (bool, error) {
+		if subtle.ConstantTimeCompare([]byte(u), []byte(username)) == 1 &&
+			subtle.ConstantTimeCompare([]byte(p), []byte(password)) == 1 {
+			return true, nil
+		}
+		return false, nil
+	})
+}
+
+// buildOidcVerifier constructs an OIDC ID token verifier. When oidcJwksUrl is
+// set, the keys are fetched from that URL lazily, so there is no network call at
+// startup; otherwise the provider is discovered from its issuer, which does one.
+// Both paths use an OTEL-instrumented HTTP client, so the JWKS and discovery
+// fetches produce client spans.
+func (a *Api) buildOidcVerifier() (*oidc.IDTokenVerifier, error) {
+	httpClient := &http.Client{
+		Timeout:   10 * time.Second,
+		Transport: otelhttp.NewTransport(http.DefaultTransport),
+	}
+	ctx := oidc.ClientContext(context.Background(), httpClient)
+
+	cfg := &oidc.Config{
+		ClientID:             a.oidcAudience,
+		SupportedSigningAlgs: []string{oidc.RS256, oidc.ES256},
+	}
+
+	if a.oidcJwksUrl != "" {
+		keySet := oidc.NewRemoteKeySet(ctx, a.oidcJwksUrl)
+		return oidc.NewVerifier(a.oidcIssuer, keySet, cfg), nil
+	}
+
+	provider, err := oidc.NewProvider(ctx, a.oidcIssuer)
+	if err != nil {
+		return nil, fmt.Errorf("discover OIDC provider '%s': %w", a.oidcIssuer, err)
+	}
+
+	return provider.Verifier(cfg), nil
+}
+
+// oidcAuthMiddleware validates the Bearer token in the Authorization header with
+// the OIDC verifier, which checks the signature against the provider's rotating
+// JWKS and the issuer, audience and expiry claims. It answers 401 for a missing
+// or invalid token, logging the underlying reason at debug level without leaking
+// it to the client.
+func oidcAuthMiddleware(verifier *oidc.IDTokenVerifier) echo.MiddlewareFunc {
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c *echo.Context) error {
+			// An authentication scheme is case-insensitive (RFC 9110, section
+			// 11.1), so "bearer" and "BEARER" name the same scheme as "Bearer".
+			scheme, rawToken, ok := strings.Cut(c.Request().Header.Get("Authorization"), " ")
+			if !ok || !strings.EqualFold(scheme, "Bearer") || rawToken == "" {
+				return echo.NewHTTPError(http.StatusUnauthorized, "a Bearer token is required in the Authorization header")
+			}
+
+			_, err := verifier.Verify(c.Request().Context(), rawToken)
+			if err != nil {
+				if logger, ok := c.Get("logger").(*slog.Logger); ok && logger != nil {
+					logger.DebugContext(c.Request().Context(), "OIDC token verification failed", slog.Any("error", err))
+				}
+
+				return echo.NewHTTPError(http.StatusUnauthorized, "the Bearer token is invalid")
+			}
+
+			return next(c)
+		}
+	}
+}
+
+// contextMiddleware, middleware for "multipart/form-data" requests, sets the
+// [Context] and related context.CancelFunc in the [echo.Context] under
+// "context" and "cancel". If the process is synchronous, it also handles the
+// result of a "multipart/form-data" request.
+//
+//	ctx := c.Get("context").(*api.Context)
+//	cancel := c.Get("cancel").(context.CancelFunc)
+func contextMiddleware(fs *gotenberg.FileSystem, timeout time.Duration, bodyLimit int64, downloadFromCfg downloadFromConfig, archiveCfg archiveConfig) echo.MiddlewareFunc {
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c *echo.Context) error {
+			logger, _ := c.Get("logger").(*slog.Logger)
+			if logger == nil {
+				return errors.New("no logger in context (possible pool reuse)")
+			}
+
+			// We create a context with a timeout so that underlying processes are
+			// able to stop early and correctly handle a timeout scenario.
+			ctx, cancel, err := newContext(c, logger, fs, timeout, bodyLimit, downloadFromCfg, archiveCfg)
+			if err != nil {
+				cancel()
+
+				return fmt.Errorf("create request context: %w", err)
+			}
+			c.Set("context", ctx)
+			c.Set("cancel", cancel)
+
+			// Call the next middleware in the chain.
+			err = next(c)
+
+			if errors.Is(err, ErrAsyncProcess) {
+				// A middleware/handler tells us that it's handling the process
+				// in an asynchronous fashion. Therefore, we must not cancel
+				// the context nor send an output file.
+				return c.NoContent(http.StatusNoContent)
+			}
+
+			defer cancel()
+
+			if errors.Is(err, ErrNoOutputFile) {
+				// A middleware/handler already wrote the response.
+				return nil
+			}
+
+			if err != nil {
+				return err
+			}
+
+			// No error, let's build the output file.
+			outputPath, err := ctx.BuildOutputFile()
+			if err != nil {
+				return fmt.Errorf("build output file: %w", err)
+			}
+
+			for key, value := range ctx.OutputHeaders() {
+				c.Response().Header().Set(key, value)
+			}
+
+			// Send the output file.
+			c.Response().Header().Set(echo.HeaderContentDisposition, ContentDisposition(ctx.OutputFilename(outputPath)))
+			err = c.File(outputPath)
+			if err != nil {
+				return fmt.Errorf("send response: %w", err)
+			}
+
+			return nil
+		}
+	}
+}
+
+// hardTimeoutMiddleware manages hard timeout scenarios, i.e., when a route
+// handler fails to timeout as expected.
+func hardTimeoutMiddleware(hardTimeout time.Duration) echo.MiddlewareFunc {
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c *echo.Context) error {
+			// Guard the type assertion so a pooled [echo.Context] whose
+			// store has been recycled under us does not crash the process.
+			// See the webhook async handler for the race this protects
+			// against.
+			logger, _ := c.Get("logger").(*slog.Logger)
+			if logger == nil {
+				return errors.New("no logger in context (possible pool reuse)")
+			}
+
+			// Define a hard timeout if the route handler fails to timeout as
+			// expected.
+			hardTimeoutCtx, hardTimeoutCancel := context.WithTimeout(
+				context.Background(),
+				hardTimeout,
+			)
+			defer hardTimeoutCancel()
+
+			errChan := make(chan error, 1)
+
+			go func() {
+				// A panic either comes from the handler itself or, after a hard
+				// timeout, from c being recycled under this goroutine. In the
+				// first case the client gets a 500 right away; in the second
+				// nobody reads errChan anymore, and its buffer keeps the send
+				// from blocking.
+				defer func() {
+					if r := recover(); r != nil {
+						logger.ErrorContext(hardTimeoutCtx, fmt.Sprintf("recover from handler panic: %v\n%s", r, debug.Stack()))
+						errChan <- fmt.Errorf("handler panic: %v", r)
+					}
+				}()
+
+				// Call the next middleware in the chain.
+				errChan <- next(c)
+			}()
+
+			select {
+			case err := <-errChan:
+				return err
+			case <-hardTimeoutCtx.Done():
+				logger.DebugContext(hardTimeoutCtx, "hard timeout as the route handler did not timeout as expected")
+
+				return fmt.Errorf("hard timeout: %w", hardTimeoutCtx.Err())
+			}
+		}
+	}
+}

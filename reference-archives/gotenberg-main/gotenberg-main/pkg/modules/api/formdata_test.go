@@ -1,0 +1,2353 @@
+package api
+
+import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	"math"
+	"net/http"
+	"reflect"
+	"strings"
+	"testing"
+	"time"
+)
+
+func TestFormData_Validate(t *testing.T) {
+	for _, tc := range []struct {
+		scenario    string
+		form        *FormData
+		expectError bool
+	}{
+		{
+			scenario: "errors",
+			form: &FormData{
+				errors: errors.New("foo"),
+			},
+			expectError: true,
+		},
+		{
+			scenario: "success",
+			form: &FormData{
+				errors: nil,
+			},
+			expectError: false,
+		},
+	} {
+		t.Run(tc.scenario, func(t *testing.T) {
+			err := tc.form.Validate()
+
+			if tc.expectError && err == nil {
+				t.Fatal("expected error but got none", err)
+			}
+
+			if !tc.expectError && err != nil {
+				t.Fatalf("expected no error but got: %v", err)
+			}
+		})
+	}
+}
+
+func TestFormData_String(t *testing.T) {
+	for _, tc := range []struct {
+		scenario     string
+		form         *FormData
+		defaultValue string
+		expect       string
+	}{
+		{
+			scenario:     "key does not exist, fallback to default zero value",
+			form:         &FormData{},
+			defaultValue: "",
+			expect:       "",
+		},
+		{
+			scenario:     "key does not exist, fallback to default value",
+			form:         &FormData{},
+			defaultValue: "foo",
+			expect:       "foo",
+		},
+		{
+			scenario: "key does exist, but empty value, fallback to default value",
+			form: &FormData{
+				values: map[string][]string{
+					"foo": {
+						"",
+					},
+				},
+			},
+			defaultValue: "",
+			expect:       "",
+		},
+		{
+			scenario: "key does exist with a value",
+			form: &FormData{
+				values: map[string][]string{
+					"foo": {
+						"foo",
+					},
+				},
+			},
+			defaultValue: "",
+			expect:       "foo",
+		},
+	} {
+		t.Run(tc.scenario, func(t *testing.T) {
+			actual := tc.defaultValue
+
+			tc.form.String("foo", &actual)
+
+			if actual != tc.expect {
+				t.Errorf("expected '%s' but got '%s'", tc.expect, actual)
+			}
+
+			if tc.form.errors != nil {
+				t.Errorf("expected no error but got: %v", tc.form.errors)
+			}
+		})
+	}
+}
+
+func TestFormData_MandatoryString(t *testing.T) {
+	for _, tc := range []struct {
+		scenario    string
+		form        *FormData
+		expect      string
+		expectError bool
+	}{
+		{
+			scenario:    "missing mandatory key",
+			form:        &FormData{},
+			expect:      "",
+			expectError: true,
+		},
+		{
+			scenario: "mandatory value is empty",
+			form: &FormData{
+				values: map[string][]string{
+					"foo": {
+						"",
+					},
+				},
+			},
+			expect:      "",
+			expectError: true,
+		},
+		{
+			scenario: "mandatory key does exist with a value",
+			form: &FormData{
+				values: map[string][]string{
+					"foo": {
+						"foo",
+					},
+				},
+			},
+			expect:      "foo",
+			expectError: false,
+		},
+	} {
+		t.Run(tc.scenario, func(t *testing.T) {
+			var actual string
+
+			tc.form.MandatoryString("foo", &actual)
+
+			if actual != tc.expect {
+				t.Errorf("expected '%s' but got '%s'", tc.expect, actual)
+			}
+
+			if tc.expectError && tc.form.errors == nil {
+				t.Fatal("expected error but got none", tc.form.errors)
+			}
+
+			if !tc.expectError && tc.form.errors != nil {
+				t.Fatalf("expected no error but got: %v", tc.form.errors)
+			}
+		})
+	}
+}
+
+func TestFormData_Bool(t *testing.T) {
+	for _, tc := range []struct {
+		scenario     string
+		form         *FormData
+		defaultValue bool
+		expect       bool
+		expectError  bool
+	}{
+		{
+			scenario:     "key does not exist, fallback to default zero value",
+			form:         &FormData{},
+			defaultValue: false,
+			expect:       false,
+			expectError:  false,
+		},
+		{
+			scenario:     "key does not exist, fallback to default value",
+			form:         &FormData{},
+			defaultValue: true,
+			expect:       true,
+			expectError:  false,
+		},
+		{
+			scenario: "key does exist, but empty value, fallback to default value",
+			form: &FormData{
+				values: map[string][]string{
+					"foo": {
+						"",
+					},
+				},
+			},
+			defaultValue: false,
+			expect:       false,
+			expectError:  false,
+		},
+		{
+			scenario: "key does exist, but value is invalid",
+			form: &FormData{
+				values: map[string][]string{
+					"foo": {
+						"foo",
+					},
+				},
+			},
+			defaultValue: false,
+			expect:       false,
+			expectError:  true,
+		},
+		{
+			scenario: "key does exist with a value",
+			form: &FormData{
+				values: map[string][]string{
+					"foo": {
+						"true",
+					},
+				},
+			},
+			defaultValue: false,
+			expect:       true,
+			expectError:  false,
+		},
+	} {
+		t.Run(tc.scenario, func(t *testing.T) {
+			actual := tc.defaultValue
+
+			tc.form.Bool("foo", &actual)
+
+			if actual != tc.expect {
+				t.Errorf("expected %t but got %t", tc.expect, actual)
+			}
+
+			if tc.expectError && tc.form.errors == nil {
+				t.Fatal("expected error but got none", tc.form.errors)
+			}
+
+			if !tc.expectError && tc.form.errors != nil {
+				t.Fatalf("expected no error but got: %v", tc.form.errors)
+			}
+		})
+	}
+}
+
+func TestFormData_MandatoryBool(t *testing.T) {
+	for _, tc := range []struct {
+		scenario    string
+		form        *FormData
+		expect      bool
+		expectError bool
+	}{
+		{
+			scenario:    "missing mandatory key",
+			form:        &FormData{},
+			expect:      false,
+			expectError: true,
+		},
+		{
+			scenario: "mandatory value is empty",
+			form: &FormData{
+				values: map[string][]string{
+					"foo": {
+						"",
+					},
+				},
+			},
+			expect:      false,
+			expectError: true,
+		},
+		{
+			scenario: "mandatory value is invalid",
+			form: &FormData{
+				values: map[string][]string{
+					"foo": {
+						"foo",
+					},
+				},
+			},
+			expect:      false,
+			expectError: true,
+		},
+		{
+			scenario: "mandatory key does exist with a value",
+			form: &FormData{
+				values: map[string][]string{
+					"foo": {
+						"true",
+					},
+				},
+			},
+			expect:      true,
+			expectError: false,
+		},
+	} {
+		t.Run(tc.scenario, func(t *testing.T) {
+			var actual bool
+
+			tc.form.MandatoryBool("foo", &actual)
+
+			if actual != tc.expect {
+				t.Errorf("expected %t but got %t", tc.expect, actual)
+			}
+
+			if tc.expectError && tc.form.errors == nil {
+				t.Fatal("expected error but got none", tc.form.errors)
+			}
+
+			if !tc.expectError && tc.form.errors != nil {
+				t.Fatalf("expected no error but got: %v", tc.form.errors)
+			}
+		})
+	}
+}
+
+func TestFormData_Int(t *testing.T) {
+	for _, tc := range []struct {
+		scenario     string
+		form         *FormData
+		defaultValue int
+		expect       int
+		expectError  bool
+	}{
+		{
+			scenario:     "key does not exist, fallback to default zero value",
+			form:         &FormData{},
+			defaultValue: 0,
+			expect:       0,
+			expectError:  false,
+		},
+		{
+			scenario:     "key does not exist, fallback to default value",
+			form:         &FormData{},
+			defaultValue: 2,
+			expect:       2,
+			expectError:  false,
+		},
+		{
+			scenario: "key does exist, but empty value, fallback to default value",
+			form: &FormData{
+				values: map[string][]string{
+					"foo": {
+						"",
+					},
+				},
+			},
+			defaultValue: 0,
+			expect:       0,
+			expectError:  false,
+		},
+		{
+			scenario: "key does exist, but value is invalid",
+			form: &FormData{
+				values: map[string][]string{
+					"foo": {
+						"foo",
+					},
+				},
+			},
+			defaultValue: 0,
+			expect:       0,
+			expectError:  true,
+		},
+		{
+			scenario: "key does exist with a value",
+			form: &FormData{
+				values: map[string][]string{
+					"foo": {
+						"3",
+					},
+				},
+			},
+			defaultValue: 0,
+			expect:       3,
+			expectError:  false,
+		},
+	} {
+		t.Run(tc.scenario, func(t *testing.T) {
+			actual := tc.defaultValue
+
+			tc.form.Int("foo", &actual)
+
+			if actual != tc.expect {
+				t.Errorf("expected %d but got %d", tc.expect, actual)
+			}
+
+			if tc.expectError && tc.form.errors == nil {
+				t.Fatal("expected error but got none", tc.form.errors)
+			}
+
+			if !tc.expectError && tc.form.errors != nil {
+				t.Fatalf("expected no error but got: %v", tc.form.errors)
+			}
+		})
+	}
+}
+
+func TestFormData_MandatoryInt(t *testing.T) {
+	for _, tc := range []struct {
+		scenario    string
+		form        *FormData
+		expect      int
+		expectError bool
+	}{
+		{
+			scenario:    "missing mandatory key",
+			form:        &FormData{},
+			expect:      0,
+			expectError: true,
+		},
+		{
+			scenario: "mandatory value is empty",
+			form: &FormData{
+				values: map[string][]string{
+					"foo": {
+						"",
+					},
+				},
+			},
+			expect:      0,
+			expectError: true,
+		},
+		{
+			scenario: "mandatory value is invalid",
+			form: &FormData{
+				values: map[string][]string{
+					"foo": {
+						"foo",
+					},
+				},
+			},
+			expect:      0,
+			expectError: true,
+		},
+		{
+			scenario: "mandatory key does exist with a value",
+			form: &FormData{
+				values: map[string][]string{
+					"foo": {
+						"2",
+					},
+				},
+			},
+			expect:      2,
+			expectError: false,
+		},
+	} {
+		t.Run(tc.scenario, func(t *testing.T) {
+			var actual int
+
+			tc.form.MandatoryInt("foo", &actual)
+
+			if actual != tc.expect {
+				t.Errorf("expected %d but got %d", tc.expect, actual)
+			}
+
+			if tc.expectError && tc.form.errors == nil {
+				t.Fatal("expected error but got none", tc.form.errors)
+			}
+
+			if !tc.expectError && tc.form.errors != nil {
+				t.Fatalf("expected no error but got: %v", tc.form.errors)
+			}
+		})
+	}
+}
+
+func TestFormData_Float64(t *testing.T) {
+	for _, tc := range []struct {
+		scenario     string
+		form         *FormData
+		defaultValue float64
+		expect       float64
+		expectError  bool
+	}{
+		{
+			scenario:     "key does not exist, fallback to default zero value",
+			form:         &FormData{},
+			defaultValue: 0.0,
+			expect:       0.0,
+			expectError:  false,
+		},
+		{
+			scenario:     "key does not exist, fallback to default value",
+			form:         &FormData{},
+			defaultValue: 2.5,
+			expect:       2.5,
+			expectError:  false,
+		},
+		{
+			scenario: "key does exist, but empty value, fallback to default value",
+			form: &FormData{
+				values: map[string][]string{
+					"foo": {
+						"",
+					},
+				},
+			},
+			defaultValue: 0.0,
+			expect:       0.0,
+			expectError:  false,
+		},
+		{
+			scenario: "key does exist, but value is invalid",
+			form: &FormData{
+				values: map[string][]string{
+					"foo": {
+						"foo",
+					},
+				},
+			},
+			defaultValue: 0.0,
+			expect:       0.0,
+			expectError:  true,
+		},
+		{
+			scenario: "key does exist with a value",
+			form: &FormData{
+				values: map[string][]string{
+					"foo": {
+						"3.5",
+					},
+				},
+			},
+			defaultValue: 0.0,
+			expect:       3.5,
+			expectError:  false,
+		},
+		{
+			scenario: "key does exist, but value NaN is not finite",
+			form: &FormData{
+				values: map[string][]string{
+					"foo": {
+						"NaN",
+					},
+				},
+			},
+			defaultValue: 0.0,
+			expect:       0.0,
+			expectError:  true,
+		},
+		{
+			scenario: "key does exist, but value Inf is not finite",
+			form: &FormData{
+				values: map[string][]string{
+					"foo": {
+						"Inf",
+					},
+				},
+			},
+			defaultValue: 0.0,
+			expect:       0.0,
+			expectError:  true,
+		},
+		{
+			scenario: "key does exist, but value -inf is not finite",
+			form: &FormData{
+				values: map[string][]string{
+					"foo": {
+						"-inf",
+					},
+				},
+			},
+			defaultValue: 0.0,
+			expect:       0.0,
+			expectError:  true,
+		},
+	} {
+		t.Run(tc.scenario, func(t *testing.T) {
+			actual := tc.defaultValue
+
+			tc.form.Float64("foo", &actual)
+
+			if actual != tc.expect {
+				t.Errorf("expected %f but got %f", tc.expect, actual)
+			}
+
+			if tc.expectError && tc.form.errors == nil {
+				t.Fatal("expected error but got none", tc.form.errors)
+			}
+
+			if !tc.expectError && tc.form.errors != nil {
+				t.Fatalf("expected no error but got: %v", tc.form.errors)
+			}
+		})
+	}
+}
+
+func TestFormData_MandatoryFloat64(t *testing.T) {
+	for _, tc := range []struct {
+		scenario    string
+		form        *FormData
+		expect      float64
+		expectError bool
+	}{
+		{
+			scenario:    "missing mandatory key",
+			form:        &FormData{},
+			expect:      0.0,
+			expectError: true,
+		},
+		{
+			scenario: "mandatory value is empty",
+			form: &FormData{
+				values: map[string][]string{
+					"foo": {
+						"",
+					},
+				},
+			},
+			expect:      0.0,
+			expectError: true,
+		},
+		{
+			scenario: "mandatory value is invalid",
+			form: &FormData{
+				values: map[string][]string{
+					"foo": {
+						"foo",
+					},
+				},
+			},
+			expect:      0.0,
+			expectError: true,
+		},
+		{
+			scenario: "mandatory key does exist with a value",
+			form: &FormData{
+				values: map[string][]string{
+					"foo": {
+						"2.5",
+					},
+				},
+			},
+			expect:      2.5,
+			expectError: false,
+		},
+	} {
+		t.Run(tc.scenario, func(t *testing.T) {
+			var actual float64
+
+			tc.form.MandatoryFloat64("foo", &actual)
+
+			if actual != tc.expect {
+				t.Errorf("expected %f but got %f", tc.expect, actual)
+			}
+
+			if tc.expectError && tc.form.errors == nil {
+				t.Fatal("expected error but got none", tc.form.errors)
+			}
+
+			if !tc.expectError && tc.form.errors != nil {
+				t.Fatalf("expected no error but got: %v", tc.form.errors)
+			}
+		})
+	}
+}
+
+func TestFormData_Duration(t *testing.T) {
+	for _, tc := range []struct {
+		scenario     string
+		form         *FormData
+		defaultValue time.Duration
+		expect       time.Duration
+		expectError  bool
+	}{
+		{
+			scenario:     "key does not exist, fallback to default zero value",
+			form:         &FormData{},
+			defaultValue: time.Duration(0),
+			expect:       time.Duration(0),
+			expectError:  false,
+		},
+		{
+			scenario:     "key does not exist, fallback to default value",
+			form:         &FormData{},
+			defaultValue: time.Duration(1) * time.Second,
+			expect:       time.Duration(1) * time.Second,
+		},
+		{
+			scenario: "key does exist, but empty value, fallback to default value",
+			form: &FormData{
+				values: map[string][]string{
+					"foo": {
+						"",
+					},
+				},
+			},
+			defaultValue: time.Duration(0),
+			expect:       time.Duration(0),
+			expectError:  false,
+		},
+		{
+			scenario: "key does exist, but value is invalid",
+			form: &FormData{
+				values: map[string][]string{
+					"foo": {
+						"foo",
+					},
+				},
+			},
+			defaultValue: time.Duration(0),
+			expect:       time.Duration(0),
+			expectError:  true,
+		},
+		{
+			scenario: "key does exist with a value",
+			form: &FormData{
+				values: map[string][]string{
+					"foo": {
+						"1s",
+					},
+				},
+			},
+			defaultValue: time.Duration(0),
+			expect:       time.Duration(1) * time.Second,
+			expectError:  false,
+		},
+	} {
+		t.Run(tc.scenario, func(t *testing.T) {
+			actual := tc.defaultValue
+
+			tc.form.Duration("foo", &actual)
+
+			if actual != tc.expect {
+				t.Errorf("expected '%s' but got '%s'", tc.expect, actual)
+			}
+
+			if tc.expectError && tc.form.errors == nil {
+				t.Fatal("expected error but got none", tc.form.errors)
+			}
+
+			if !tc.expectError && tc.form.errors != nil {
+				t.Fatalf("expected no error but got: %v", tc.form.errors)
+			}
+		})
+	}
+}
+
+func TestFormData_MandatoryDuration(t *testing.T) {
+	for _, tc := range []struct {
+		scenario    string
+		form        *FormData
+		expect      time.Duration
+		expectError bool
+	}{
+		{
+			scenario:    "missing mandatory key",
+			form:        &FormData{},
+			expect:      time.Duration(0),
+			expectError: true,
+		},
+		{
+			scenario: "mandatory value is empty",
+			form: &FormData{
+				values: map[string][]string{
+					"foo": {
+						"",
+					},
+				},
+			},
+			expect:      time.Duration(0),
+			expectError: true,
+		},
+		{
+			scenario: "mandatory value is invalid",
+			form: &FormData{
+				values: map[string][]string{
+					"foo": {
+						"foo",
+					},
+				},
+			},
+			expect:      time.Duration(0),
+			expectError: true,
+		},
+		{
+			scenario: "mandatory key does exist with a value",
+			form: &FormData{
+				values: map[string][]string{
+					"foo": {
+						"1s",
+					},
+				},
+			},
+			expect:      time.Duration(1) * time.Second,
+			expectError: false,
+		},
+	} {
+		t.Run(tc.scenario, func(t *testing.T) {
+			var actual time.Duration
+
+			tc.form.MandatoryDuration("foo", &actual)
+
+			if actual != tc.expect {
+				t.Errorf("expected '%s' but got '%s'", tc.expect, actual)
+			}
+
+			if tc.expectError && tc.form.errors == nil {
+				t.Fatal("expected error but got none", tc.form.errors)
+			}
+
+			if !tc.expectError && tc.form.errors != nil {
+				t.Fatalf("expected no error but got: %v", tc.form.errors)
+			}
+		})
+	}
+}
+
+func TestFormData_Inches(t *testing.T) {
+	for _, tc := range []struct {
+		scenario     string
+		form         *FormData
+		defaultValue float64
+		expect       float64
+		expectError  bool
+	}{
+		{
+			scenario:     "key does not exist, fallback to default zero value",
+			form:         &FormData{},
+			defaultValue: 0.0,
+			expect:       0.0,
+			expectError:  false,
+		},
+		{
+			scenario:     "key does not exist, fallback to default value",
+			form:         &FormData{},
+			defaultValue: 2.5,
+			expect:       2.5,
+			expectError:  false,
+		},
+		{
+			scenario: "key does exist, but empty value, fallback to default value",
+			form: &FormData{
+				values: map[string][]string{
+					"foo": {
+						"",
+					},
+				},
+			},
+			defaultValue: 0.0,
+			expect:       0.0,
+			expectError:  false,
+		},
+		{
+			scenario: "key does exist, value has a unit, but the rest is not float64 compatible",
+			form: &FormData{
+				values: map[string][]string{
+					"foo": {
+						"foomm",
+					},
+				},
+			},
+			defaultValue: 0.0,
+			expect:       0.0,
+			expectError:  true,
+		},
+		{
+			scenario: "key does exist, but value has no unit and is invalid",
+			form: &FormData{
+				values: map[string][]string{
+					"foo": {
+						"foo",
+					},
+				},
+			},
+			defaultValue: 0.0,
+			expect:       0.0,
+			expectError:  true,
+		},
+		{
+			scenario: "key does exist with a pt value",
+			form: &FormData{
+				values: map[string][]string{
+					"foo": {
+						"72pt",
+					},
+				},
+			},
+			defaultValue: 0.0,
+			expect:       1.0,
+			expectError:  false,
+		},
+		{
+			scenario: "key does exist with a px value",
+			form: &FormData{
+				values: map[string][]string{
+					"foo": {
+						"96px",
+					},
+				},
+			},
+			defaultValue: 0.0,
+			expect:       1.0,
+			expectError:  false,
+		},
+		{
+			scenario: "key does exist with an in value",
+			form: &FormData{
+				values: map[string][]string{
+					"foo": {
+						"1in",
+					},
+				},
+			},
+			defaultValue: 0.0,
+			expect:       1.0,
+			expectError:  false,
+		},
+		{
+			scenario: "key does exist with a mm value",
+			form: &FormData{
+				values: map[string][]string{
+					"foo": {
+						"25.4mm",
+					},
+				},
+			},
+			defaultValue: 0.0,
+			expect:       1.0,
+			expectError:  false,
+		},
+		{
+			scenario: "key does exist with a cm value",
+			form: &FormData{
+				values: map[string][]string{
+					"foo": {
+						"2.54cm",
+					},
+				},
+			},
+			defaultValue: 0.0,
+			expect:       1.0,
+			expectError:  false,
+		},
+		{
+			scenario: "key does exist with a pc value",
+			form: &FormData{
+				values: map[string][]string{
+					"foo": {
+						"6pc",
+					},
+				},
+			},
+			defaultValue: 0.0,
+			expect:       1.0,
+			expectError:  false,
+		},
+		{
+			scenario: "key does exist with no unit in the value",
+			form: &FormData{
+				values: map[string][]string{
+					"foo": {
+						"100",
+					},
+				},
+			},
+			defaultValue: 0.0,
+			expect:       100,
+			expectError:  false,
+		},
+		{
+			scenario: "key does exist, but value NaN is not finite",
+			form: &FormData{
+				values: map[string][]string{
+					"foo": {
+						"NaN",
+					},
+				},
+			},
+			defaultValue: 0.0,
+			expect:       0.0,
+			expectError:  true,
+		},
+		{
+			scenario: "key does exist, but value Infmm is not finite",
+			form: &FormData{
+				values: map[string][]string{
+					"foo": {
+						"Infmm",
+					},
+				},
+			},
+			defaultValue: 0.0,
+			expect:       0.0,
+			expectError:  true,
+		},
+		{
+			scenario: "key does exist, but value +Infpx is not finite",
+			form: &FormData{
+				values: map[string][]string{
+					"foo": {
+						"+Infpx",
+					},
+				},
+			},
+			defaultValue: 0.0,
+			expect:       0.0,
+			expectError:  true,
+		},
+	} {
+		t.Run(tc.scenario, func(t *testing.T) {
+			actual := tc.defaultValue
+
+			tc.form.Inches("foo", &actual)
+
+			if fmt.Sprintf("%.1f", actual) != fmt.Sprintf("%.1f", tc.expect) {
+				t.Errorf("expected %.1f but got %.1f", tc.expect, actual)
+			}
+
+			if tc.expectError && tc.form.errors == nil {
+				t.Fatal("expected error but got none", tc.form.errors)
+			}
+
+			if !tc.expectError && tc.form.errors != nil {
+				t.Fatalf("expected no error but got: %v", tc.form.errors)
+			}
+		})
+	}
+}
+
+func TestFormData_MandatoryInches(t *testing.T) {
+	for _, tc := range []struct {
+		scenario    string
+		form        *FormData
+		expect      float64
+		expectError bool
+	}{
+		{
+			scenario:    "missing mandatory key",
+			form:        &FormData{},
+			expect:      0.0,
+			expectError: true,
+		},
+		{
+			scenario: "mandatory value is empty",
+			form: &FormData{
+				values: map[string][]string{
+					"foo": {
+						"",
+					},
+				},
+			},
+			expect:      0.0,
+			expectError: true,
+		},
+		{
+			scenario: "mandatory value has a unit, but the rest is not float64 compatible",
+			form: &FormData{
+				values: map[string][]string{
+					"foo": {
+						"foomm",
+					},
+				},
+			},
+			expect:      0.0,
+			expectError: true,
+		},
+		{
+			scenario: "mandatory value has no unit and is invalid",
+			form: &FormData{
+				values: map[string][]string{
+					"foo": {
+						"foo",
+					},
+				},
+			},
+			expect:      0.0,
+			expectError: true,
+		},
+		{
+			scenario: "a pt mandatory value",
+			form: &FormData{
+				values: map[string][]string{
+					"foo": {
+						"72pt",
+					},
+				},
+			},
+			expect:      1.0,
+			expectError: false,
+		},
+		{
+			scenario: "a px mandatory value",
+			form: &FormData{
+				values: map[string][]string{
+					"foo": {
+						"96px",
+					},
+				},
+			},
+			expect:      1.0,
+			expectError: false,
+		},
+		{
+			scenario: "an in mandatory value",
+			form: &FormData{
+				values: map[string][]string{
+					"foo": {
+						"1in",
+					},
+				},
+			},
+			expect:      1.0,
+			expectError: false,
+		},
+		{
+			scenario: "a mm mandatory value",
+			form: &FormData{
+				values: map[string][]string{
+					"foo": {
+						"25.4mm",
+					},
+				},
+			},
+			expect:      1.0,
+			expectError: false,
+		},
+		{
+			scenario: "a cm mandatory value",
+			form: &FormData{
+				values: map[string][]string{
+					"foo": {
+						"2.54cm",
+					},
+				},
+			},
+			expect:      1.0,
+			expectError: false,
+		},
+		{
+			scenario: "a pc mandatory value",
+			form: &FormData{
+				values: map[string][]string{
+					"foo": {
+						"6pc",
+					},
+				},
+			},
+			expect:      1.0,
+			expectError: false,
+		},
+		{
+			scenario: "no unit in the mandatory value",
+			form: &FormData{
+				values: map[string][]string{
+					"foo": {
+						"100",
+					},
+				},
+			},
+			expect:      100,
+			expectError: false,
+		},
+	} {
+		t.Run(tc.scenario, func(t *testing.T) {
+			var actual float64
+
+			tc.form.MandatoryInches("foo", &actual)
+
+			if fmt.Sprintf("%.1f", actual) != fmt.Sprintf("%.1f", tc.expect) {
+				t.Errorf("expected %.1f but got %.1f", tc.expect, actual)
+			}
+
+			if tc.expectError && tc.form.errors == nil {
+				t.Fatal("expected error but got none", tc.form.errors)
+			}
+
+			if !tc.expectError && tc.form.errors != nil {
+				t.Fatalf("expected no error but got: %v", tc.form.errors)
+			}
+		})
+	}
+}
+
+func TestFormData_Custom(t *testing.T) {
+	for _, tc := range []struct {
+		scenario     string
+		form         *FormData
+		defaultValue map[string]string
+		expect       map[string]string
+		expectError  bool
+	}{
+		{
+			scenario:     "key does not exist, fallback to default zero value",
+			form:         &FormData{},
+			defaultValue: nil,
+			expect:       nil,
+			expectError:  false,
+		},
+		{
+			scenario:     "key does not exist, fallback to default value",
+			form:         &FormData{},
+			defaultValue: map[string]string{"foo": "foo"},
+			expect:       map[string]string{"foo": "foo"},
+			expectError:  false,
+		},
+		{
+			scenario: "key does exist, but empty value, fallback to default value",
+			form: &FormData{
+				values: map[string][]string{
+					"foo": {
+						"",
+					},
+				},
+			},
+			defaultValue: nil,
+			expect:       nil,
+			expectError:  false,
+		},
+		{
+			scenario: "key does exist, but value is invalid",
+			form: &FormData{
+				values: map[string][]string{
+					"foo": {
+						"foo",
+					},
+				},
+			},
+			defaultValue: nil,
+			expect:       nil,
+			expectError:  true,
+		},
+		{
+			scenario: "key does exist with a value",
+			form: &FormData{
+				values: map[string][]string{
+					"foo": {
+						`{ "foo": "foo" }`,
+					},
+				},
+			},
+			defaultValue: nil,
+			expect:       map[string]string{"foo": "foo"},
+			expectError:  false,
+		},
+	} {
+		t.Run(tc.scenario, func(t *testing.T) {
+			var actual map[string]string
+
+			tc.form.Custom("foo", func(value string) error {
+				if value == "" {
+					actual = tc.defaultValue
+
+					return nil
+				}
+
+				err := json.Unmarshal([]byte(value), &actual)
+				if err != nil {
+					return err
+				}
+
+				return nil
+			})
+
+			if !reflect.DeepEqual(actual, tc.expect) {
+				t.Errorf("expected %+v but got: %+v", tc.expect, actual)
+			}
+
+			if tc.expectError && tc.form.errors == nil {
+				t.Fatal("expected error but got none", tc.form.errors)
+			}
+
+			if !tc.expectError && tc.form.errors != nil {
+				t.Fatalf("expected no error but got: %v", tc.form.errors)
+			}
+		})
+	}
+}
+
+func TestFormData_MandatoryCustom(t *testing.T) {
+	for _, tc := range []struct {
+		scenario    string
+		form        *FormData
+		expect      map[string]string
+		expectError bool
+	}{
+		{
+			scenario:    "missing mandatory key",
+			form:        &FormData{},
+			expect:      nil,
+			expectError: true,
+		},
+		{
+			scenario: "mandatory value is empty",
+			form: &FormData{
+				values: map[string][]string{
+					"foo": {
+						"",
+					},
+				},
+			},
+			expect:      nil,
+			expectError: true,
+		},
+		{
+			scenario: "mandatory key does exist, but value is invalid",
+			form: &FormData{
+				values: map[string][]string{
+					"foo": {
+						"foo",
+					},
+				},
+			},
+			expect:      nil,
+			expectError: true,
+		},
+		{
+			scenario: "mandatory key does exist with a value",
+			form: &FormData{
+				values: map[string][]string{
+					"foo": {
+						`{ "foo": "foo" }`,
+					},
+				},
+			},
+			expect:      map[string]string{"foo": "foo"},
+			expectError: false,
+		},
+	} {
+		t.Run(tc.scenario, func(t *testing.T) {
+			var actual map[string]string
+
+			tc.form.MandatoryCustom("foo", func(value string) error {
+				err := json.Unmarshal([]byte(value), &actual)
+				if err != nil {
+					return err
+				}
+
+				return nil
+			})
+
+			if !reflect.DeepEqual(actual, tc.expect) {
+				t.Errorf("expected %+v but got: %+v", tc.expect, actual)
+			}
+
+			if tc.expectError && tc.form.errors == nil {
+				t.Fatal("expected error but got none", tc.form.errors)
+			}
+
+			if !tc.expectError && tc.form.errors != nil {
+				t.Fatalf("expected no error but got: %v", tc.form.errors)
+			}
+		})
+	}
+}
+
+func TestFormData_Path(t *testing.T) {
+	for _, tc := range []struct {
+		scenario string
+		form     *FormData
+		expect   string
+	}{
+		{
+			scenario: "no file, fallback to zero value",
+			form:     &FormData{},
+			expect:   "",
+		},
+		{
+			scenario: "file does not exist, fallback to zero value",
+			form: &FormData{
+				files: map[string]string{
+					"bar": "/bar",
+				},
+			},
+			expect: "",
+		},
+		{
+			scenario: "file does exist",
+			form: &FormData{
+				files: map[string]string{
+					"foo": "/foo",
+				},
+			},
+			expect: "/foo",
+		},
+	} {
+		t.Run(tc.scenario, func(t *testing.T) {
+			var actual string
+
+			tc.form.Path("foo", &actual)
+
+			if actual != tc.expect {
+				t.Errorf("expected '%s' but got '%s'", tc.expect, actual)
+			}
+
+			if tc.form.errors != nil {
+				t.Errorf("expected no error but got: %v", tc.form.errors)
+			}
+		})
+	}
+}
+
+// Path must not depend on map order when several uploads match a filename.
+func TestFormData_Path_CaseVariants(t *testing.T) {
+	for _, tc := range []struct {
+		scenario    string
+		files       map[string]string
+		expect      string
+		expectError bool
+	}{
+		{
+			scenario: "the exact name wins over a case variant",
+			files:    map[string]string{"doc.pdf": "/exact", "doc.PDF": "/variant"},
+			expect:   "/exact",
+		},
+		{
+			scenario: "a single case variant matches",
+			files:    map[string]string{"doc.PDF": "/variant"},
+			expect:   "/variant",
+		},
+		{
+			scenario:    "several case variants are ambiguous",
+			files:       map[string]string{"doc.PDF": "/upper", "doc.Pdf": "/mixed"},
+			expectError: true,
+		},
+	} {
+		t.Run(tc.scenario, func(t *testing.T) {
+			// Map order varies between iterations: repeat to catch a lucky pick.
+			for range 20 {
+				form := &FormData{files: tc.files}
+
+				var actual string
+				form.MandatoryPath("doc.pdf", &actual)
+
+				if actual != tc.expect {
+					t.Fatalf("expected '%s' but got '%s'", tc.expect, actual)
+				}
+				if tc.expectError != (form.errors != nil) {
+					t.Fatalf("expected error %t, got: %v", tc.expectError, form.errors)
+				}
+				if tc.expectError && strings.Contains(form.errors.Error(), "required") {
+					t.Fatalf("expected only the ambiguity error, got: %v", form.errors)
+				}
+			}
+		})
+	}
+}
+
+func TestFormData_MandatoryPath(t *testing.T) {
+	for _, tc := range []struct {
+		scenario    string
+		form        *FormData
+		expect      string
+		expectError bool
+	}{
+		{
+			scenario:    "missing mandatory file: no file",
+			form:        &FormData{},
+			expect:      "",
+			expectError: true,
+		},
+		{
+			scenario: "missing mandatory file: file does not exist",
+			form: &FormData{
+				files: map[string]string{
+					"bar": "/bar",
+				},
+			},
+			expect:      "",
+			expectError: true,
+		},
+		{
+			scenario: "mandatory file does exist",
+			form: &FormData{
+				files: map[string]string{
+					"foo": "/foo",
+				},
+			},
+			expect:      "/foo",
+			expectError: false,
+		},
+	} {
+		t.Run(tc.scenario, func(t *testing.T) {
+			var actual string
+
+			tc.form.MandatoryPath("foo", &actual)
+
+			if actual != tc.expect {
+				t.Errorf("expected '%s' but got '%s'", tc.expect, actual)
+			}
+
+			if tc.expectError && tc.form.errors == nil {
+				t.Fatal("expected error but got none", tc.form.errors)
+			}
+
+			if !tc.expectError && tc.form.errors != nil {
+				t.Fatalf("expected no error but got: %v", tc.form.errors)
+			}
+		})
+	}
+}
+
+func TestFormData_Content(t *testing.T) {
+	for _, tc := range []struct {
+		scenario     string
+		form         *FormData
+		filename     string
+		defaultValue string
+		expect       string
+		expectError  bool
+	}{
+		{
+			scenario:     "no file, fallback to zero value",
+			form:         &FormData{},
+			filename:     "",
+			defaultValue: "",
+			expect:       "",
+			expectError:  false,
+		},
+		{
+			scenario: "file does not exist, fallback to zero value",
+			form: &FormData{
+				files: map[string]string{
+					"bar": "/bar",
+				},
+			},
+			filename:     "foo",
+			defaultValue: "",
+			expect:       "",
+			expectError:  false,
+		},
+		{
+			scenario: "file does not exist, fallback to default value",
+			form: &FormData{
+				files: map[string]string{
+					"bar": "/bar",
+				},
+			},
+			filename:     "foo",
+			defaultValue: "foo",
+			expect:       "foo",
+			expectError:  false,
+		},
+		{
+			scenario: "file does not exist, cannot read its content",
+			form: &FormData{
+				files: map[string]string{
+					"foo": "/foo",
+				},
+			},
+			filename:     "foo",
+			defaultValue: "",
+			expect:       "",
+			expectError:  true,
+		},
+		{
+			scenario: "file does exist without file extension",
+			form: &FormData{
+				files: map[string]string{
+					"foo": "testdata/sample.txt",
+				},
+			},
+			filename:     "foo",
+			defaultValue: "",
+			expect:       "This is a text from a text file.",
+			expectError:  false,
+		},
+		{
+			scenario: "file does exist with an uppercase file extension",
+			form: &FormData{
+				files: map[string]string{
+					"foo.TXT": "testdata/sample.txt",
+				},
+			},
+			filename:     "foo.txt",
+			defaultValue: "",
+			expect:       "This is a text from a text file.",
+			expectError:  false,
+		},
+		{
+			scenario: "file does exist without a lowercase file extension",
+			form: &FormData{
+				files: map[string]string{
+					"foo.txt": "testdata/sample.txt",
+				},
+			},
+			filename:     "foo.txt",
+			defaultValue: "",
+			expect:       "This is a text from a text file.",
+			expectError:  false,
+		},
+	} {
+		t.Run(tc.scenario, func(t *testing.T) {
+			actual := tc.defaultValue
+
+			tc.form.Content(tc.filename, &actual)
+
+			if actual != tc.expect {
+				t.Errorf("expected '%s' but got '%s'", tc.expect, actual)
+			}
+
+			if tc.expectError && tc.form.errors == nil {
+				t.Fatal("expected error but got none", tc.form.errors)
+			}
+
+			if !tc.expectError && tc.form.errors != nil {
+				t.Fatalf("expected no error but got: %v", tc.form.errors)
+			}
+		})
+	}
+}
+
+func TestFormData_MandatoryContent(t *testing.T) {
+	for _, tc := range []struct {
+		scenario    string
+		form        *FormData
+		filename    string
+		expect      string
+		expectError bool
+	}{
+		{
+			scenario:    "missing mandatory file: no file",
+			form:        &FormData{},
+			filename:    "foo",
+			expect:      "",
+			expectError: true,
+		},
+		{
+			scenario: "missing mandatory file: file does not exist",
+			form: &FormData{
+				files: map[string]string{
+					"bar": "/bar",
+				},
+			},
+			filename:    "foo",
+			expect:      "",
+			expectError: true,
+		},
+		{
+			scenario: "mandatory file does exist, cannot read its content",
+			form: &FormData{
+				files: map[string]string{
+					"foo": "/foo",
+				},
+			},
+			filename:    "foo",
+			expect:      "",
+			expectError: true,
+		},
+		{
+			scenario: "mandatory file does exist without file extension",
+			form: &FormData{
+				files: map[string]string{
+					"foo": "testdata/sample.txt",
+				},
+			},
+			filename:    "foo",
+			expect:      "This is a text from a text file.",
+			expectError: false,
+		},
+		{
+			scenario: "mandatory file does exist with an uppercase file extension",
+			form: &FormData{
+				files: map[string]string{
+					"foo.TXT": "testdata/sample.txt",
+				},
+			},
+			filename:    "foo.txt",
+			expect:      "This is a text from a text file.",
+			expectError: false,
+		},
+		{
+			scenario: "mandatory file does exist without a lowercase file extension",
+			form: &FormData{
+				files: map[string]string{
+					"foo.txt": "testdata/sample.txt",
+				},
+			},
+			filename:    "foo.txt",
+			expect:      "This is a text from a text file.",
+			expectError: false,
+		},
+	} {
+		t.Run(tc.scenario, func(t *testing.T) {
+			var actual string
+
+			tc.form.MandatoryContent(tc.filename, &actual)
+
+			if actual != tc.expect {
+				t.Errorf("expected '%s' but got '%s'", tc.expect, actual)
+			}
+
+			if tc.expectError && tc.form.errors == nil {
+				t.Fatal("expected error but got none", tc.form.errors)
+			}
+
+			if !tc.expectError && tc.form.errors != nil {
+				t.Fatalf("expected no error but got: %v", tc.form.errors)
+			}
+		})
+	}
+}
+
+func TestFormData_Paths(t *testing.T) {
+	for _, tc := range []struct {
+		scenario    string
+		form        *FormData
+		extensions  []string
+		expect      []string
+		expectCount int
+	}{
+		{
+			scenario:    "no file, fallback to zero value",
+			form:        &FormData{},
+			extensions:  nil,
+			expect:      nil,
+			expectCount: 0,
+		},
+		{
+			scenario: "no file with given file extension, fallback to zero value",
+			form: &FormData{
+				files: map[string]string{
+					"foo.zip": "/foo.zip",
+					"foo.pdf": "/foo.pdf",
+				},
+			},
+			extensions:  []string{".txt"},
+			expect:      nil,
+			expectCount: 0,
+		},
+		{
+			scenario: "files do exist with given file extension",
+			form: &FormData{
+				files: map[string]string{
+					"foo.zip": "/foo.zip",
+					"b.pdf":   "/b.PDF",
+					"a.pdf":   "/a.pdf",
+				},
+			},
+			extensions: []string{".pdf"},
+			expect: []string{
+				"/a.pdf",
+				"/b.PDF",
+			},
+			expectCount: 2,
+		},
+	} {
+		t.Run(tc.scenario, func(t *testing.T) {
+			var actual []string
+
+			tc.form.Paths(tc.extensions, &actual)
+
+			if !reflect.DeepEqual(actual, tc.expect) {
+				t.Errorf("expected %v but got: %v", tc.expect, actual)
+			}
+
+			if len(actual) != tc.expectCount {
+				t.Errorf("expected %d files but got %d", tc.expectCount, len(actual))
+			}
+
+			if tc.form.errors != nil {
+				t.Errorf("expected no error but got: %v", tc.form.errors)
+			}
+		})
+	}
+}
+
+func TestFormData_MandatoryPaths(t *testing.T) {
+	for _, tc := range []struct {
+		scenario    string
+		form        *FormData
+		extensions  []string
+		expect      []string
+		expectCount int
+		expectError bool
+	}{
+		{
+			scenario:    "missing mandatory files: no file",
+			form:        &FormData{},
+			extensions:  nil,
+			expect:      nil,
+			expectCount: 0,
+			expectError: true,
+		},
+		{
+			scenario: "missing mandatory files: no file with given file extension",
+			form: &FormData{
+				files: map[string]string{
+					"foo.zip": "/foo.zip",
+					"foo.pdf": "/foo.pdf",
+				},
+			},
+			extensions:  []string{".txt"},
+			expect:      nil,
+			expectCount: 0,
+			expectError: true,
+		},
+		{
+			scenario: "mandatory files do exist with given file extension",
+			form: &FormData{
+				files: map[string]string{
+					"foo.zip": "/foo.zip",
+					"b.PDF":   "/b.PDF",
+					"a.pdf":   "/a.pdf",
+				},
+			},
+			extensions: []string{".pdf"},
+			expect: []string{
+				"/a.pdf",
+				"/b.PDF",
+			},
+			expectCount: 2,
+			expectError: false,
+		},
+	} {
+		t.Run(tc.scenario, func(t *testing.T) {
+			var actual []string
+
+			tc.form.MandatoryPaths(tc.extensions, &actual)
+
+			if !reflect.DeepEqual(actual, tc.expect) {
+				t.Errorf("expected %v but got: %v", tc.expect, actual)
+			}
+
+			if len(actual) != tc.expectCount {
+				t.Errorf("expected %d files but got %d", tc.expectCount, len(actual))
+			}
+
+			if tc.expectError && tc.form.errors == nil {
+				t.Fatal("expected error but got none", tc.form.errors)
+			}
+
+			if !tc.expectError && tc.form.errors != nil {
+				t.Fatalf("expected no error but got: %v", tc.form.errors)
+			}
+		})
+	}
+}
+
+func TestFormData_append(t *testing.T) {
+	form := &FormData{}
+	form.append(errors.New("foo"))
+
+	if form.errors == nil {
+		t.Errorf("expected error but got: %v", form.errors)
+	}
+}
+
+func TestFormData_Strings(t *testing.T) {
+	form := &FormData{
+		values: map[string][]string{
+			"foo": {"a", "b", "c"},
+		},
+	}
+
+	var got []string
+	form.Strings("foo", &got)
+
+	if want := []string{"a", "b", "c"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("expected %+v, got %+v", want, got)
+	}
+
+	var missing []string
+	form.Strings("bar", &missing)
+	if missing != nil {
+		t.Errorf("expected nil for a missing key, got %+v", missing)
+	}
+}
+
+// De-duplicating a repeated filename must not change merge order. Files with
+// unique names keep exactly the order they had before de-duplication existed,
+// and two files sharing a name merge in the order the caller sent them.
+func TestFormData_paths_DuplicateFilenamesKeepUploadOrder(t *testing.T) {
+	for _, tc := range []struct {
+		scenario string
+		files    map[string]string
+		fileBase map[string]string
+		order    map[string]int
+		want     []string
+	}{
+		{
+			scenario: "unique names sort exactly as before",
+			files:    map[string]string{"b.pdf": "/w/2", "a.pdf": "/w/1", "c.pdf": "/w/3"},
+			fileBase: map[string]string{"/w/1": "a.pdf", "/w/2": "b.pdf", "/w/3": "c.pdf"},
+			order:    map[string]int{"/w/1": 0, "/w/2": 1, "/w/3": 2},
+			want:     []string{"/w/1", "/w/2", "/w/3"},
+		},
+		{
+			scenario: "numeric prefixes still win",
+			files:    map[string]string{"10_x.pdf": "/w/3", "2_x.pdf": "/w/2", "1_x.pdf": "/w/1"},
+			fileBase: map[string]string{"/w/1": "1_x.pdf", "/w/2": "2_x.pdf", "/w/3": "10_x.pdf"},
+			order:    map[string]int{"/w/1": 0, "/w/2": 1, "/w/3": 2},
+			want:     []string{"/w/1", "/w/2", "/w/3"},
+		},
+		{
+			scenario: "duplicates merge in upload order, not suffix order",
+			files:    map[string]string{"doc.pdf": "/w/1", "doc (2).pdf": "/w/2"},
+			fileBase: map[string]string{"/w/1": "doc.pdf", "/w/2": "doc.pdf"},
+			order:    map[string]int{"/w/1": 0, "/w/2": 1},
+			want:     []string{"/w/1", "/w/2"},
+		},
+		{
+			scenario: "duplicates stay adjacent and in position",
+			files: map[string]string{
+				"a.pdf": "/w/1", "doc.pdf": "/w/2", "doc (2).pdf": "/w/3", "z.pdf": "/w/4",
+			},
+			fileBase: map[string]string{
+				"/w/1": "a.pdf", "/w/2": "doc.pdf", "/w/3": "doc.pdf", "/w/4": "z.pdf",
+			},
+			order: map[string]int{"/w/1": 0, "/w/2": 1, "/w/3": 2, "/w/4": 3},
+			want:  []string{"/w/1", "/w/2", "/w/3", "/w/4"},
+		},
+		{
+			scenario: "three copies keep their order",
+			files:    map[string]string{"r.pdf": "/w/1", "r (2).pdf": "/w/2", "r (3).pdf": "/w/3"},
+			fileBase: map[string]string{"/w/1": "r.pdf", "/w/2": "r.pdf", "/w/3": "r.pdf"},
+			order:    map[string]int{"/w/1": 0, "/w/2": 1, "/w/3": 2},
+			want:     []string{"/w/1", "/w/2", "/w/3"},
+		},
+	} {
+		t.Run(tc.scenario, func(t *testing.T) {
+			form := &FormData{
+				files:     tc.files,
+				fileBase:  tc.fileBase,
+				fileOrder: tc.order,
+			}
+
+			// Map iteration is randomised, so run it repeatedly: an unstable
+			// comparator shows up as a differing result across runs.
+			for range 50 {
+				var got []string
+				form.paths([]string{".pdf"}, &got)
+
+				if len(got) != len(tc.want) {
+					t.Fatalf("paths() returned %d entries, want %d", len(got), len(tc.want))
+				}
+				for i := range got {
+					if got[i] != tc.want[i] {
+						t.Fatalf("paths() = %v, want %v", got, tc.want)
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestFormData_PaperSize(t *testing.T) {
+	for _, tc := range []struct {
+		value                 string
+		wantWidth, wantHeight float64
+		wantErr               bool
+	}{
+		{value: "", wantWidth: -1, wantHeight: -1},
+		{value: "A4", wantWidth: 210 / 25.4, wantHeight: 297 / 25.4},
+		{value: "letter", wantWidth: 8.5, wantHeight: 11},
+		{value: "Tabloid", wantWidth: 11, wantHeight: 17},
+		{value: "a0", wantWidth: 841 / 25.4, wantHeight: 1189 / 25.4},
+		{value: "A7", wantWidth: -1, wantHeight: -1, wantErr: true},
+	} {
+		t.Run(tc.value, func(t *testing.T) {
+			form := &FormData{values: map[string][]string{"paperSize": {tc.value}}}
+			width, height := -1.0, -1.0
+
+			err := form.PaperSize("paperSize", &width, &height).Validate()
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("err = %v, wantErr %t", err, tc.wantErr)
+			}
+
+			if math.Abs(width-tc.wantWidth) > 1e-9 || math.Abs(height-tc.wantHeight) > 1e-9 {
+				t.Errorf("size = %gx%g, want %gx%g", width, height, tc.wantWidth, tc.wantHeight)
+			}
+		})
+	}
+}
+
+func TestPaperSizeInches(t *testing.T) {
+	for _, tc := range []struct {
+		name                  string
+		wantWidth, wantHeight float64
+		wantOk                bool
+	}{
+		{name: "A4", wantWidth: 210 / 25.4, wantHeight: 297 / 25.4, wantOk: true},
+		{name: "letter", wantWidth: 8.5, wantHeight: 11, wantOk: true},
+		{name: "LEGAL", wantWidth: 8.5, wantHeight: 14, wantOk: true},
+		{name: "A0", wantWidth: 841 / 25.4, wantHeight: 1189 / 25.4, wantOk: true},
+		{name: "A1", wantWidth: 594 / 25.4, wantHeight: 841 / 25.4, wantOk: true},
+		{name: "a2", wantWidth: 420 / 25.4, wantHeight: 594 / 25.4, wantOk: true},
+		{name: "A7"},
+		{name: ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			width, height, ok := PaperSizeInches(tc.name)
+			if ok != tc.wantOk {
+				t.Fatalf("ok = %t, want %t", ok, tc.wantOk)
+			}
+
+			if math.Abs(width-tc.wantWidth) > 1e-9 || math.Abs(height-tc.wantHeight) > 1e-9 {
+				t.Errorf("size = %gx%g, want %gx%g", width, height, tc.wantWidth, tc.wantHeight)
+			}
+		})
+	}
+}
+
+func TestParseInches(t *testing.T) {
+	for _, tc := range []struct {
+		value   string
+		want    float64
+		wantErr bool
+	}{
+		{value: "6", want: 6},
+		{value: "6in", want: 6},
+		{value: "432pt", want: 6},
+		{value: "15.24cm", want: 6},
+		{value: "152.4mm", want: 6},
+		{value: "576px", want: 6},
+		{value: "36pc", want: 6},
+		{value: "six inches", wantErr: true},
+		{value: "NaN", wantErr: true},
+		{value: "", wantErr: true},
+	} {
+		t.Run(tc.value, func(t *testing.T) {
+			got, err := ParseInches(tc.value)
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("err = %v, wantErr %t", err, tc.wantErr)
+			}
+
+			if math.Abs(got-tc.want) > 1e-9 {
+				t.Errorf("ParseInches(%q) = %g, want %g", tc.value, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestFormData_Int_Checks(t *testing.T) {
+	for _, tc := range []struct {
+		scenario      string
+		value         string
+		checks        []func(int) error
+		expect        int
+		expectMessage string
+	}{
+		{scenario: "accepted by every check", value: "2", checks: []func(int) error{Min(1), Max(3)}, expect: 2},
+		{scenario: "below the minimum", value: "0", checks: []func(int) error{Min(1)}, expect: 7, expectMessage: "want 1 or more"},
+		{scenario: "above the maximum", value: "101", checks: []func(int) error{Min(1), Max(100)}, expect: 7, expectMessage: "want 100 or less"},
+		{scenario: "not one of the values", value: "5", checks: []func(int) error{OneOf(0, 1, 2)}, expect: 7, expectMessage: "want 0, 1 or 2"},
+		{scenario: "not the only value", value: "5", checks: []func(int) error{OneOf(1)}, expect: 7, expectMessage: "want 1"},
+		{scenario: "one of the values", value: "1", checks: []func(int) error{OneOf(0, 1, 2)}, expect: 1},
+	} {
+		t.Run(tc.scenario, func(t *testing.T) {
+			form := &FormData{values: map[string][]string{"foo": {tc.value}}}
+
+			actual := 7
+			form.Int("foo", &actual, tc.checks...)
+
+			if actual != tc.expect {
+				t.Errorf("expected %d but got %d", tc.expect, actual)
+			}
+
+			if tc.expectMessage == "" {
+				if form.errors != nil {
+					t.Fatalf("expected no error but got: %v", form.errors)
+				}
+				return
+			}
+
+			want := fmt.Sprintf("form field 'foo' is invalid (got '%s', %s)", tc.value, tc.expectMessage)
+			if form.errors == nil || clientMessage(form.errors) != want {
+				t.Fatalf("expected error %q but got: %v", want, form.errors)
+			}
+		})
+	}
+}
+
+// TestFormData_Messages pins the client message of each kind of field: the
+// value the client sent, then what the field wants.
+func TestFormData_Messages(t *testing.T) {
+	for _, tc := range []struct {
+		scenario string
+		value    string
+		bind     func(form *FormData)
+		want     string
+	}{
+		{
+			scenario: "bool",
+			value:    "yes please",
+			bind:     func(form *FormData) { form.Bool("foo", new(bool)) },
+			want:     "want true or false",
+		},
+		{
+			scenario: "integer",
+			value:    "1.5",
+			bind:     func(form *FormData) { form.Int("foo", new(int)) },
+			want:     "want an integer",
+		},
+		{
+			scenario: "number",
+			value:    "NaN",
+			bind:     func(form *FormData) { form.Float64("foo", new(float64)) },
+			want:     "want a number",
+		},
+		{
+			scenario: "length",
+			value:    "8inches",
+			bind:     func(form *FormData) { form.Inches("foo", new(float64)) },
+			want:     "want a number, optionally followed by pt, px, in, mm, cm or pc",
+		},
+		{
+			scenario: "length with a unit",
+			value:    "eightmm",
+			bind:     func(form *FormData) { form.Inches("foo", new(float64)) },
+			want:     "want a number, optionally followed by pt, px, in, mm, cm or pc",
+		},
+		{
+			scenario: "duration",
+			value:    "2",
+			bind:     func(form *FormData) { form.Duration("foo", new(time.Duration)) },
+			want:     "want a duration such as 500ms or 2s",
+		},
+		{
+			scenario: "JSON",
+			value:    "[499",
+			bind:     func(form *FormData) { JSON(form, "foo", new([]int), "a JSON array of status codes, such as [499,599]") },
+			want:     "want a JSON array of status codes, such as [499,599]",
+		},
+		{
+			scenario: "custom",
+			value:    "bar",
+			bind: func(form *FormData) {
+				form.Custom("foo", func(string) error { return errors.New("want baz") })
+			},
+			want: "want baz",
+		},
+	} {
+		t.Run(tc.scenario, func(t *testing.T) {
+			form := &FormData{values: map[string][]string{"foo": {tc.value}}}
+			tc.bind(form)
+
+			want := fmt.Sprintf("form field 'foo' is invalid (got '%s', %s)", tc.value, tc.want)
+			if form.errors == nil || clientMessage(form.errors) != want {
+				t.Fatalf("expected error %q but got: %v", want, form.errors)
+			}
+		})
+	}
+}
+
+func TestJSON(t *testing.T) {
+	for _, tc := range []struct {
+		scenario    string
+		form        *FormData
+		expect      []int
+		expectError bool
+	}{
+		{
+			scenario: "absent field keeps the current value",
+			form:     &FormData{},
+			expect:   []int{404},
+		},
+		{
+			scenario: "valid JSON",
+			form:     &FormData{values: map[string][]string{"foo": {"[500, 502]"}}},
+			expect:   []int{500, 502},
+		},
+		{
+			scenario:    "invalid JSON keeps the current value",
+			form:        &FormData{values: map[string][]string{"foo": {"[500"}}},
+			expect:      []int{404},
+			expectError: true,
+		},
+	} {
+		t.Run(tc.scenario, func(t *testing.T) {
+			actual := []int{404}
+			JSON(tc.form, "foo", &actual, "a JSON array of status codes")
+
+			if !reflect.DeepEqual(actual, tc.expect) {
+				t.Errorf("expected %v but got %v", tc.expect, actual)
+			}
+
+			if tc.expectError != (tc.form.errors != nil) {
+				t.Fatalf("expected error %t but got: %v", tc.expectError, tc.form.errors)
+			}
+		})
+	}
+}
+
+// Strings binds even after a previous field failed, and never aliases the
+// form's own values.
+func TestFormData_Strings_IndependentOfOtherFields(t *testing.T) {
+	form := &FormData{values: map[string][]string{"bad": {"foo"}, "foo": {"a", "b"}}}
+
+	var invalid bool
+	var actual []string
+	form.Bool("bad", &invalid).Strings("foo", &actual)
+
+	if !reflect.DeepEqual(actual, []string{"a", "b"}) {
+		t.Fatalf("expected [a b] but got %v", actual)
+	}
+
+	actual[0] = "changed"
+	if form.values["foo"][0] != "a" {
+		t.Fatal("Strings aliased the form values")
+	}
+}
+
+func TestFormData_RejectUnknown(t *testing.T) {
+	hint := func(field, value string, file bool) string {
+		switch {
+		case field == "merge" && !file:
+			return "use the merge stage"
+		case field == "pdfa" && !file:
+			return "use the remediate stage with " + value
+		case field == "watermark" && file:
+			return "upload it under files"
+		default:
+			return ""
+		}
+	}
+
+	for _, tc := range []struct {
+		scenario   string
+		values     map[string][]string
+		fileFields []string
+		read       func(form *FormData)
+		hint       func(field, value string, file bool) string
+		want       string
+	}{
+		{
+			scenario: "every field read",
+			values:   map[string][]string{"foo": {"a"}, "bar": {"b"}},
+			read:     func(form *FormData) { form.String("foo", new(string)).Strings("bar", new([]string)) },
+			hint:     hint,
+		},
+		{
+			scenario: "a field read but empty",
+			values:   map[string][]string{"foo": {""}},
+			read:     func(form *FormData) { form.Bool("foo", new(bool)) },
+			hint:     hint,
+		},
+		{
+			scenario: "downloadFrom",
+			values:   map[string][]string{"downloadFrom": {"[]"}},
+			read:     func(*FormData) {},
+			hint:     hint,
+		},
+		{
+			scenario: "unknown fields, in order",
+			values:   map[string][]string{"foo": {"a"}, "zed": {"z"}, "bar": {"b"}},
+			read:     func(form *FormData) { form.String("foo", new(string)) },
+			hint:     hint,
+			want:     "form field 'bar' is unknown to this route\nform field 'zed' is unknown to this route",
+		},
+		{
+			scenario: "unknown field with a hint",
+			values:   map[string][]string{"merge": {"true"}},
+			read:     func(*FormData) {},
+			hint:     hint,
+			want:     "form field 'merge' is unknown to this route; use the merge stage",
+		},
+		{
+			scenario: "unknown field with a hint naming its value",
+			values:   map[string][]string{"pdfa": {"PDF/A-1b", "PDF/A-2b"}},
+			read:     func(*FormData) {},
+			hint:     hint,
+			want:     "form field 'pdfa' is unknown to this route; use the remediate stage with PDF/A-1b",
+		},
+		{
+			scenario:   "file field with a hint",
+			fileFields: []string{"files", "watermark", "anything"},
+			read:       func(*FormData) {},
+			hint:       hint,
+			want:       "form file field 'watermark' is unknown to this route; upload it under files",
+		},
+		{
+			scenario:   "no hint",
+			values:     map[string][]string{"merge": {"true"}},
+			fileFields: []string{"watermark"},
+			read:       func(*FormData) {},
+			want:       "form field 'merge' is unknown to this route",
+		},
+	} {
+		t.Run(tc.scenario, func(t *testing.T) {
+			mock := &ContextMock{Context: new(Context)}
+			mock.SetValues(tc.values)
+			mock.SetFileFields(tc.fileFields...)
+
+			// The fields a route reads through one FormData count for the
+			// others of the request.
+			tc.read(mock.FormData())
+			form := mock.FormData().RejectUnknown(tc.hint)
+
+			if tc.want == "" {
+				if form.errors != nil {
+					t.Fatalf("expected no error but got: %v", form.errors)
+				}
+				return
+			}
+
+			if form.errors == nil || form.errors.Error() != tc.want {
+				t.Fatalf("expected error %q but got: %v", tc.want, form.errors)
+			}
+		})
+	}
+}
+
+// TestFormData_Sent pins that Sent reads a field without binding it: a field
+// only Sent read is still unknown to the route.
+func TestFormData_Sent(t *testing.T) {
+	mock := &ContextMock{Context: new(Context)}
+	mock.SetValues(map[string][]string{"pdfua": {"true", "false"}})
+	form := mock.FormData()
+
+	if got := form.Sent("pdfua"); got != "true" {
+		t.Errorf("Sent(%q) = %q, want the first value", "pdfua", got)
+	}
+
+	if got := form.Sent("pdfa"); got != "" {
+		t.Errorf("Sent(%q) = %q, want none", "pdfa", got)
+	}
+
+	form.RejectUnknown(nil)
+	if form.errors == nil || form.errors.Error() != "form field 'pdfua' is unknown to this route" {
+		t.Fatalf("expected 'pdfua' to stay unknown, got: %v", form.errors)
+	}
+}
+
+// TestValidateKeepsValuesOutOfTheLoggedError pins that the error Validate
+// wraps, which the access log writes at the error level, leaves out the value
+// of an invalid form field, and that the 400 the caller receives names it. A
+// value may carry a credential. See GHSA-g85v-3gpx-4gw5.
+func TestValidateKeepsValuesOutOfTheLoggedError(t *testing.T) {
+	const secret = "COOKIE_SECRET_SENTINEL"
+	form := &FormData{values: map[string][]string{
+		"cookies":   {`[{"name":"s","value":"` + secret + `"}]`},
+		"waitDelay": {"soon"},
+	}}
+	form.Custom("cookies", func(string) error { return errors.New("cookie 0 must have its name, value and domain set") })
+	form.Duration("waitDelay", new(time.Duration))
+
+	err := form.Validate()
+	if err == nil {
+		t.Fatal("expected an error, got none")
+	}
+	if strings.Contains(err.Error(), secret) {
+		t.Errorf("the logged error holds the value: %v", err)
+	}
+
+	var httpErr HttpError
+	if !errors.As(err, &httpErr) {
+		t.Fatalf("expected an HTTP error, got: %v", err)
+	}
+	status, message := httpErr.HttpError()
+	if status != http.StatusBadRequest {
+		t.Errorf("expected status 400, got %d", status)
+	}
+	want := "Invalid form data: form field 'cookies' is invalid (got '[{\"name\":\"s\",\"value\":\"" + secret + "\"}]', cookie 0 must have its name, value and domain set)\nform field 'waitDelay' is invalid (got 'soon', "
+	if !strings.HasPrefix(message, want) {
+		t.Errorf("expected the message to start with %q, got %q", want, message)
+	}
+}

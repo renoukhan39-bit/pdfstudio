@@ -1,0 +1,470 @@
+# ARG instructions do not create additional layers. Instead, next layers will
+# concatenate them. Also, we have to repeat ARG instructions in each build
+# stage that uses them.
+ARG GOLANG_VERSION=1.27.3
+
+# ----------------------------------------------
+# lok binary stage
+# ----------------------------------------------
+# lok converts documents with LibreOfficeKit. Its release binaries link
+# against the LibreOfficeKit headers of the LibreOffice the final images
+# install from trixie-backports, and need no newer glibc than Debian 13 has.
+FROM debian:13-slim AS lok-binary-stage
+
+# See https://github.com/gotenberg/lok/releases.
+ARG LOK_VERSION=v0.0.6
+
+RUN apt-get update -qq \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends ca-certificates curl \
+    && rm -rf /var/lib/apt/lists/* \
+    # The script verifies the checksum, then runs lok --version.
+    && curl -fsSL "https://github.com/gotenberg/lok/releases/download/$LOK_VERSION/install.sh" \
+    | LOK_VERSION="$LOK_VERSION" LOK_INSTALL_DIR=/home sh
+
+# ----------------------------------------------
+# Gotenberg binary build stage
+# ----------------------------------------------
+FROM golang:$GOLANG_VERSION AS gotenberg-binary-stage
+
+ARG GOTENBERG_VERSION=snapshot
+ENV CGO_ENABLED=0
+
+# Define the working directory outside of $GOPATH (we're using go modules).
+WORKDIR /home
+
+# Install module dependencies.
+COPY go.mod go.sum ./
+
+RUN go mod download \
+    && go mod verify
+
+# Copy the source code.
+COPY cmd ./cmd
+COPY pkg ./pkg
+
+RUN go build -o gotenberg -ldflags "-s -w -X 'github.com/gotenberg/gotenberg/v9/cmd.Version=$GOTENBERG_VERSION'" cmd/gotenberg/main.go \
+    && go build -o gotenberg-chromium -ldflags "-s -w -X 'github.com/gotenberg/gotenberg/v9/cmd.Version=$GOTENBERG_VERSION'" cmd/gotenberg-chromium/main.go \
+    && go build -o gotenberg-libreoffice -ldflags "-s -w -X 'github.com/gotenberg/gotenberg/v9/cmd.Version=$GOTENBERG_VERSION'" cmd/gotenberg-libreoffice/main.go
+
+# ----------------------------------------------
+# Base image stage
+# ----------------------------------------------
+FROM debian:13-slim AS base-image-stage
+
+ARG TIMEZONE=UTC
+ENV TZ=$TIMEZONE
+
+
+# ----------------------------------------------
+# Common stage
+# ----------------------------------------------
+FROM base-image-stage AS common-stage
+
+ARG GOTENBERG_USER_GID=1001
+ARG GOTENBERG_USER_UID=1001
+
+# APT_SNAPSHOT busts every layer below it when CI rotates the value, weekly.
+# Without it a persistent build cache turns the unpinned "apt-get upgrade" into
+# a cache hit and the published image keeps shipping the package versions that
+# were current when the cache was first populated. Declaring it here covers
+# every "apt-get upgrade" in the gotenberg, gotenberg-chromium and
+# gotenberg-libreoffice targets too, since all three branch from this stage.
+ARG APT_SNAPSHOT=""
+
+# Create a non-root user.
+# All processes in the Docker container will run with this dedicated user.
+RUN echo "apt snapshot: $APT_SNAPSHOT" \
+    && groupadd --gid "$GOTENBERG_USER_GID" gotenberg \
+    && useradd --uid "$GOTENBERG_USER_UID" --gid gotenberg --shell /bin/bash --home /home/gotenberg --no-create-home gotenberg \
+    && mkdir /home/gotenberg \
+    && chown gotenberg: /home/gotenberg
+
+# Note: tini is a helper for reaping zombie processes.
+RUN apt-get update -qq \
+    && apt-get upgrade -yqq \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends \
+        ca-certificates \
+        tini \
+        # Many users rely on curl for Docker health checks.
+        curl \
+        # Install fonts.
+        # Essential metric-compatible fonts for LibreOffice layout fidelity (replaces MS Fonts).
+        fonts-crosextra-carlito \
+        fonts-crosextra-caladea \
+        fonts-liberation \
+        fonts-liberation2 \
+        # Reliable general-purpose fallback for Chromium.
+        fonts-dejavu \
+        # Unified CJK (Chinese, Japanese, Korean) support.
+        fonts-noto-cjk \
+        # Standard Emoji support.
+        fonts-noto-color-emoji \
+        # Tofu prevention.
+        fonts-noto-core \
+        # Symbol and ZapfDingbats substitutes (Standard Symbols PS, D050000L) for
+        # the PDF stages, which draw form check marks with them.
+        fonts-urw-base35 \
+    # See https://github.com/nextcloud/docker/issues/380.
+    && mkdir -p /usr/share/man/man1 \
+    # Cleanup.
+    && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+
+# Support for arbitrary user IDs (OpenShift).
+# See:
+# https://github.com/gotenberg/gotenberg/issues/1049.
+# https://docs.redhat.com/en/documentation/openshift_container_platform/4.15/html/images/creating-images#use-uid_create-images.
+RUN usermod -aG root gotenberg \
+    && chgrp -R 0 /home/gotenberg \
+    && chmod -R g=u /home/gotenberg
+
+# COPY instructions last to maximize cache reuse when only source code changes.
+
+# Improve fonts subpixel hinting and smoothing.
+# Credits:
+# https://github.com/arachnys/athenapdf/issues/69.
+# https://github.com/arachnys/athenapdf/commit/ba25a8d80a25d08d58865519c4cd8756dc9a336d.
+COPY --link build/fonts.conf /etc/fonts/conf.d/100-gotenberg.conf
+
+# Set default characterset encoding to UTF-8.
+# See:
+# https://github.com/gotenberg/gotenberg/issues/104
+# https://github.com/gotenberg/gotenberg/issues/730
+ENV LANG=C.UTF-8
+ENV LC_ALL=C.UTF-8
+
+# Capture backing-binary versions at build time so the running process reports
+# them on traces without spawning the binaries at startup or per request.
+# See pkg/gotenberg/buildversions.go. Chromium and LibreOffice are captured in
+# the variant stages below, where they are installed.
+ENV GOTENBERG_VERSIONS_DIR_PATH=/opt/gotenberg/versions
+
+COPY --link build/capture-version.sh /opt/gotenberg/capture-version.sh
+
+# OpenTelemetry defaults (noop - no telemetry overhead unless explicitly enabled).
+ENV OTEL_TRACES_EXPORTER=none
+ENV OTEL_METRICS_EXPORTER=none
+ENV OTEL_LOGS_EXPORTER=none
+
+# ----------------------------------------------
+# Final stage: full (Chromium + LibreOffice)
+# ----------------------------------------------
+FROM common-stage AS gotenberg
+
+ARG GOTENBERG_VERSION=snapshot
+ARG GOTENBERG_USER_GID=1001
+ARG GOTENBERG_USER_UID=1001
+
+LABEL org.opencontainers.image.title="Gotenberg" \
+    org.opencontainers.image.description="A Docker-based API for converting documents to PDF." \
+    org.opencontainers.image.version="$GOTENBERG_VERSION" \
+    org.opencontainers.image.authors="Julien Neuhart <neuhart.julien@gmail.com>" \
+    org.opencontainers.image.documentation="https://gotenberg.dev" \
+    org.opencontainers.image.source="https://github.com/gotenberg/gotenberg"
+
+# Install Chromium.
+RUN apt-get update -qq \
+    && apt-get upgrade -yqq \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends chromium \
+    && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+
+# Install LibreOffice.
+RUN echo "deb http://deb.debian.org/debian trixie-backports main" >> /etc/apt/sources.list \
+    && apt-get update -qq \
+    && apt-get upgrade -yqq \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends \
+        # Install Hyphenation for LibreOffice.
+        # Credits: https://wiki.archlinux.org/title/LibreOffice.
+        hyphen-af hyphen-as hyphen-be hyphen-bg hyphen-bn hyphen-ca hyphen-cs hyphen-da hyphen-de hyphen-el \
+        hyphen-en-gb hyphen-en-us hyphen-eo hyphen-es hyphen-fr hyphen-gl hyphen-gu hyphen-hi hyphen-hr hyphen-hu \
+        hyphen-id hyphen-is hyphen-it hyphen-kn hyphen-lt hyphen-lv hyphen-ml hyphen-mn hyphen-mr hyphen-nl \
+        hyphen-no hyphen-or hyphen-pa hyphen-pl hyphen-pt-br hyphen-pt-pt hyphen-ro hyphen-ru hyphen-sk hyphen-sl \
+        hyphen-sr hyphen-sv hyphen-ta hyphen-te hyphen-th hyphen-uk hyphen-zu \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends -t trixie-backports \
+        libreoffice-writer libreoffice-calc libreoffice-impress libreoffice-draw libreoffice-math \
+    # Cleanup.
+    && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+
+# COPY instructions last to maximize cache reuse.
+
+# Copy the Gotenberg binary (full variant with all modules).
+COPY --link --from=gotenberg-binary-stage /home/gotenberg /usr/bin/
+
+# Copy lok.
+COPY --link --from=lok-binary-stage /home/lok /usr/bin/lok
+
+# Keep the system locale empty, as soffice leaves it. LibreOfficeKit sets it
+# to en-US at startup, which makes Letter the fallback page size of documents
+# that set none, such as spreadsheets, CSV and TXT files. Empty, the image's
+# paper size applies: A4, as in Gotenberg 8.
+# See https://github.com/gotenberg/gotenberg/issues/1723.
+COPY --link build/libreoffice-system-locale.xcd /usr/lib/libreoffice/share/registry/gotenberg-system-locale.xcd
+
+# Copy dictionnaries so that hyphens work on Chromium.
+# See https://github.com/gotenberg/gotenberg/issues/1293.
+COPY --link --chown="$GOTENBERG_USER_UID:$GOTENBERG_USER_GID" build/chromium-hyphen-data /opt/gotenberg/chromium-hyphen-data
+
+# Distrust the roots behind the compromised eMudhra intermediates from the
+# first request. Chromium's root store still trusts emSign ECC Root CA - G3,
+# and only rejects the chains once its component updater fetches a CRLSet,
+# about two minutes after each start, or never without access to Google.
+# The policy lists, by SHA-256 fingerprint:
+#   - emSign ECC Root CA - G3 86A1ECBA089C4A8D3BBE2734C612BA341D813E043CF9E8A862CD5C57A36BBE6B
+#   - emSign Root TLS CA - G3 7DD78D5F4F13459A83DFF9ABBBA62EDBAF6F2D102BF257FD712F4D9F2746ED8D
+#   - AAA Certificate Services D7A7A0FB5D7E2731D771E9484EBCDEF71D5F0C3E0A2948782BC83EE0EA699EF4
+# See https://emudhra.we-have-a-problem.com.
+COPY --link build/chromium-policies /etc/chromium/policies/managed
+
+ENV CHROMIUM_BIN_PATH=/usr/bin/chromium
+ENV CHROMIUM_HYPHEN_DATA_DIR_PATH=/opt/gotenberg/chromium-hyphen-data
+ENV LIBREOFFICE_BIN_PATH=/usr/lib/libreoffice/program/soffice.bin
+ENV LOK_BIN_PATH=/usr/bin/lok
+
+# Capture Chromium, LibreOffice and lok versions now that they are installed.
+RUN bash /opt/gotenberg/capture-version.sh "$GOTENBERG_VERSIONS_DIR_PATH" chromium "$CHROMIUM_BIN_PATH" --version \
+    && bash /opt/gotenberg/capture-version.sh "$GOTENBERG_VERSIONS_DIR_PATH" libreoffice-api "$LIBREOFFICE_BIN_PATH" --version \
+    && bash /opt/gotenberg/capture-version.sh "$GOTENBERG_VERSIONS_DIR_PATH" lok "$LOK_BIN_PATH" --version
+
+USER gotenberg
+WORKDIR /home/gotenberg
+
+# Default API port.
+EXPOSE 3000
+
+ENTRYPOINT [ "/usr/bin/tini", "--" ]
+CMD [ "gotenberg" ]
+
+# ----------------------------------------------
+# Final stage: Chromium only
+# ----------------------------------------------
+FROM common-stage AS gotenberg-chromium
+
+ARG GOTENBERG_VERSION=snapshot
+ARG GOTENBERG_USER_GID=1001
+ARG GOTENBERG_USER_UID=1001
+
+LABEL org.opencontainers.image.title="Gotenberg (Chromium)" \
+    org.opencontainers.image.description="A Docker-based API for converting documents to PDF — Chromium variant." \
+    org.opencontainers.image.version="$GOTENBERG_VERSION" \
+    org.opencontainers.image.authors="Julien Neuhart <neuhart.julien@gmail.com>" \
+    org.opencontainers.image.documentation="https://gotenberg.dev" \
+    org.opencontainers.image.source="https://github.com/gotenberg/gotenberg"
+
+# Install Chromium.
+RUN apt-get update -qq \
+    && apt-get upgrade -yqq \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends chromium \
+    && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+
+# COPY instructions last to maximize cache reuse.
+
+# Copy the Gotenberg binary (Chromium variant, no LibreOffice modules).
+COPY --link --from=gotenberg-binary-stage /home/gotenberg-chromium /usr/bin/gotenberg
+
+# Copy dictionnaries so that hyphens work on Chromium.
+# See https://github.com/gotenberg/gotenberg/issues/1293.
+COPY --link --chown="$GOTENBERG_USER_UID:$GOTENBERG_USER_GID" build/chromium-hyphen-data /opt/gotenberg/chromium-hyphen-data
+
+# Distrust the roots behind the compromised eMudhra intermediates from the
+# first request. Chromium's root store still trusts emSign ECC Root CA - G3,
+# and only rejects the chains once its component updater fetches a CRLSet,
+# about two minutes after each start, or never without access to Google.
+# The policy lists, by SHA-256 fingerprint:
+#   - emSign ECC Root CA - G3 86A1ECBA089C4A8D3BBE2734C612BA341D813E043CF9E8A862CD5C57A36BBE6B
+#   - emSign Root TLS CA - G3 7DD78D5F4F13459A83DFF9ABBBA62EDBAF6F2D102BF257FD712F4D9F2746ED8D
+#   - AAA Certificate Services D7A7A0FB5D7E2731D771E9484EBCDEF71D5F0C3E0A2948782BC83EE0EA699EF4
+# See https://emudhra.we-have-a-problem.com.
+COPY --link build/chromium-policies /etc/chromium/policies/managed
+
+ENV CHROMIUM_BIN_PATH=/usr/bin/chromium
+ENV CHROMIUM_HYPHEN_DATA_DIR_PATH=/opt/gotenberg/chromium-hyphen-data
+
+# Capture the Chromium version now that it is installed.
+RUN bash /opt/gotenberg/capture-version.sh "$GOTENBERG_VERSIONS_DIR_PATH" chromium "$CHROMIUM_BIN_PATH" --version
+
+USER gotenberg
+WORKDIR /home/gotenberg
+
+# Default API port.
+EXPOSE 3000
+
+ENTRYPOINT [ "/usr/bin/tini", "--" ]
+CMD [ "gotenberg" ]
+
+# ----------------------------------------------
+# Final stage: LibreOffice only
+# ----------------------------------------------
+FROM common-stage AS gotenberg-libreoffice
+
+ARG GOTENBERG_VERSION=snapshot
+
+LABEL org.opencontainers.image.title="Gotenberg (LibreOffice)" \
+    org.opencontainers.image.description="A Docker-based API for converting documents to PDF — LibreOffice variant." \
+    org.opencontainers.image.version="$GOTENBERG_VERSION" \
+    org.opencontainers.image.authors="Julien Neuhart <neuhart.julien@gmail.com>" \
+    org.opencontainers.image.documentation="https://gotenberg.dev" \
+    org.opencontainers.image.source="https://github.com/gotenberg/gotenberg"
+
+# Install LibreOffice.
+RUN echo "deb http://deb.debian.org/debian trixie-backports main" >> /etc/apt/sources.list \
+    && apt-get update -qq \
+    && apt-get upgrade -yqq \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends \
+        # Install Hyphenation for LibreOffice.
+        # Credits: https://wiki.archlinux.org/title/LibreOffice.
+        hyphen-af hyphen-as hyphen-be hyphen-bg hyphen-bn hyphen-ca hyphen-cs hyphen-da hyphen-de hyphen-el \
+        hyphen-en-gb hyphen-en-us hyphen-eo hyphen-es hyphen-fr hyphen-gl hyphen-gu hyphen-hi hyphen-hr hyphen-hu \
+        hyphen-id hyphen-is hyphen-it hyphen-kn hyphen-lt hyphen-lv hyphen-ml hyphen-mn hyphen-mr hyphen-nl \
+        hyphen-no hyphen-or hyphen-pa hyphen-pl hyphen-pt-br hyphen-pt-pt hyphen-ro hyphen-ru hyphen-sk hyphen-sl \
+        hyphen-sr hyphen-sv hyphen-ta hyphen-te hyphen-th hyphen-uk hyphen-zu \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends -t trixie-backports \
+        libreoffice-writer libreoffice-calc libreoffice-impress libreoffice-draw libreoffice-math \
+    # Cleanup.
+    && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+
+# COPY instructions last to maximize cache reuse.
+
+# Copy the Gotenberg binary (LibreOffice variant, no Chromium modules).
+COPY --link --from=gotenberg-binary-stage /home/gotenberg-libreoffice /usr/bin/gotenberg
+
+# Copy lok.
+COPY --link --from=lok-binary-stage /home/lok /usr/bin/lok
+
+# Keep the system locale empty, as soffice leaves it. LibreOfficeKit sets it
+# to en-US at startup, which makes Letter the fallback page size of documents
+# that set none, such as spreadsheets, CSV and TXT files. Empty, the image's
+# paper size applies: A4, as in Gotenberg 8.
+# See https://github.com/gotenberg/gotenberg/issues/1723.
+COPY --link build/libreoffice-system-locale.xcd /usr/lib/libreoffice/share/registry/gotenberg-system-locale.xcd
+
+ENV LIBREOFFICE_BIN_PATH=/usr/lib/libreoffice/program/soffice.bin
+ENV LOK_BIN_PATH=/usr/bin/lok
+
+# Capture the LibreOffice and lok versions now that they are installed.
+RUN bash /opt/gotenberg/capture-version.sh "$GOTENBERG_VERSIONS_DIR_PATH" libreoffice-api "$LIBREOFFICE_BIN_PATH" --version \
+    && bash /opt/gotenberg/capture-version.sh "$GOTENBERG_VERSIONS_DIR_PATH" lok "$LOK_BIN_PATH" --version
+
+USER gotenberg
+WORKDIR /home/gotenberg
+
+# Default API port.
+EXPOSE 3000
+
+ENTRYPOINT [ "/usr/bin/tini", "--" ]
+CMD [ "gotenberg" ]
+
+# ==============================================================
+# Cloud Run variants
+# ==============================================================
+
+# ----------------------------------------------
+# Cloud Run: full (Chromium + LibreOffice)
+# ----------------------------------------------
+FROM gotenberg AS gotenberg-cloudrun
+
+USER root
+
+# For security reasons, the non-root user gotenberg does not own the Tini binary by default.
+# However, some providers like Cloud Run from Google Cloud cannot start a Docker container in that case.
+# See https://github.com/gotenberg/gotenberg/issues/90#issuecomment-543551353.
+RUN chown gotenberg: /usr/bin/tini
+
+ENV API_PORT_FROM_ENV=PORT
+ENV CHROMIUM_AUTO_START=true
+ENV LIBREOFFICE_AUTO_START=true
+ENV WEBHOOK_ENABLE_SYNC_MODE=true
+ENV GOTENBERG_BUILD_DEBUG_DATA=false
+ENV LOG_STD_ENABLE_GCP_FIELDS=true
+
+USER gotenberg
+
+# ----------------------------------------------
+# Cloud Run: Chromium only
+# ----------------------------------------------
+FROM gotenberg-chromium AS gotenberg-cloudrun-chromium
+
+USER root
+
+RUN chown gotenberg: /usr/bin/tini
+
+ENV API_PORT_FROM_ENV=PORT
+ENV CHROMIUM_AUTO_START=true
+ENV WEBHOOK_ENABLE_SYNC_MODE=true
+ENV GOTENBERG_BUILD_DEBUG_DATA=false
+ENV LOG_STD_ENABLE_GCP_FIELDS=true
+
+USER gotenberg
+
+# ----------------------------------------------
+# Cloud Run: LibreOffice only
+# ----------------------------------------------
+FROM gotenberg-libreoffice AS gotenberg-cloudrun-libreoffice
+
+USER root
+
+RUN chown gotenberg: /usr/bin/tini
+
+ENV API_PORT_FROM_ENV=PORT
+ENV LIBREOFFICE_AUTO_START=true
+ENV WEBHOOK_ENABLE_SYNC_MODE=true
+ENV GOTENBERG_BUILD_DEBUG_DATA=false
+ENV LOG_STD_ENABLE_GCP_FIELDS=true
+
+USER gotenberg
+
+# ==============================================================
+# AWS Lambda variants
+# ==============================================================
+
+# ----------------------------------------------
+# AWS Lambda: full (Chromium + LibreOffice)
+# ----------------------------------------------
+FROM gotenberg AS gotenberg-aws-lambda
+
+USER root
+
+COPY --from=public.ecr.aws/awsguru/aws-lambda-adapter:1.1.0 /lambda-adapter /opt/extensions/lambda-adapter
+
+ENV AWS_LWA_PORT=3000
+ENV AWS_LWA_READINESS_CHECK_PATH=/health
+ENV AWS_LWA_INVOKE_MODE=buffered
+ENV API_PORT_FROM_ENV=AWS_LWA_PORT
+ENV WEBHOOK_ENABLE_SYNC_MODE=true
+ENV GOTENBERG_BUILD_DEBUG_DATA=false
+
+USER gotenberg
+
+# ----------------------------------------------
+# AWS Lambda: Chromium only
+# ----------------------------------------------
+FROM gotenberg-chromium AS gotenberg-aws-lambda-chromium
+
+USER root
+
+COPY --from=public.ecr.aws/awsguru/aws-lambda-adapter:1.1.0 /lambda-adapter /opt/extensions/lambda-adapter
+
+ENV AWS_LWA_PORT=3000
+ENV AWS_LWA_READINESS_CHECK_PATH=/health
+ENV AWS_LWA_INVOKE_MODE=buffered
+ENV API_PORT_FROM_ENV=AWS_LWA_PORT
+ENV WEBHOOK_ENABLE_SYNC_MODE=true
+ENV GOTENBERG_BUILD_DEBUG_DATA=false
+
+USER gotenberg
+
+# ----------------------------------------------
+# AWS Lambda: LibreOffice only
+# ----------------------------------------------
+FROM gotenberg-libreoffice AS gotenberg-aws-lambda-libreoffice
+
+USER root
+
+COPY --from=public.ecr.aws/awsguru/aws-lambda-adapter:1.1.0 /lambda-adapter /opt/extensions/lambda-adapter
+
+ENV AWS_LWA_PORT=3000
+ENV AWS_LWA_READINESS_CHECK_PATH=/health
+ENV AWS_LWA_INVOKE_MODE=buffered
+ENV API_PORT_FROM_ENV=AWS_LWA_PORT
+ENV WEBHOOK_ENABLE_SYNC_MODE=true
+ENV GOTENBERG_BUILD_DEBUG_DATA=false
+
+USER gotenberg

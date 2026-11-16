@@ -1,0 +1,334 @@
+/* Copyright 2017 Mozilla Foundation
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+import { CMap, CMapFactory, IdentityCMap } from "../../src/core/cmap.js";
+import {
+  CMAP_URL,
+  DefaultBinaryDataFactory,
+  fetchBuiltInCMapHelper,
+} from "./test_utils.js";
+import { Name } from "../../src/core/primitives.js";
+import { StringStream } from "../../src/core/stream.js";
+
+describe("cmap", function () {
+  let fetchBuiltInCMap;
+
+  beforeAll(function () {
+    const binaryDataFactory = new DefaultBinaryDataFactory({
+      cMapUrl: CMAP_URL,
+    });
+
+    fetchBuiltInCMap = name =>
+      fetchBuiltInCMapHelper(binaryDataFactory, /* cMapPacked = */ true, name);
+  });
+
+  afterAll(function () {
+    fetchBuiltInCMap = null;
+  });
+
+  it("parses beginbfchar", async function () {
+    // prettier-ignore
+    const str = "2 beginbfchar\n" +
+              "<03> <00>\n" +
+              "<04> <01>\n" +
+              "endbfchar\n";
+    const stream = new StringStream(str);
+    const cmap = await CMapFactory.create({ encoding: stream });
+    expect(cmap.lookup(0x03)).toEqual(String.fromCharCode(0x00));
+    expect(cmap.lookup(0x04)).toEqual(String.fromCharCode(0x01));
+    expect(cmap.lookup(0x05)).toBeUndefined();
+  });
+
+  it("parses beginbfrange with range", async function () {
+    // prettier-ignore
+    const str = "1 beginbfrange\n" +
+              "<06> <0B> 0\n" +
+              "endbfrange\n";
+    const stream = new StringStream(str);
+    const cmap = await CMapFactory.create({ encoding: stream });
+    expect(cmap.lookup(0x05)).toBeUndefined();
+    expect(cmap.lookup(0x06)).toEqual(String.fromCharCode(0x00));
+    expect(cmap.lookup(0x0b)).toEqual(String.fromCharCode(0x05));
+    expect(cmap.lookup(0x0c)).toBeUndefined();
+  });
+
+  it("parses beginbfrange with array", async function () {
+    // prettier-ignore
+    const str = "1 beginbfrange\n" +
+              "<0D> <12> [ 0 1 2 3 4 5 ]\n" +
+              "endbfrange\n";
+    const stream = new StringStream(str);
+    const cmap = await CMapFactory.create({ encoding: stream });
+    expect(cmap.lookup(0x0c)).toBeUndefined();
+    expect(cmap.lookup(0x0d)).toEqual(0x00);
+    expect(cmap.lookup(0x12)).toEqual(0x05);
+    expect(cmap.lookup(0x13)).toBeUndefined();
+  });
+
+  it("parses begincidchar", async function () {
+    // prettier-ignore
+    const str = "1 begincidchar\n" +
+              "<14> 0\n" +
+              "endcidchar\n";
+    const stream = new StringStream(str);
+    const cmap = await CMapFactory.create({ encoding: stream });
+    expect(cmap.lookup(0x14)).toEqual(0x00);
+    expect(cmap.lookup(0x15)).toBeUndefined();
+  });
+
+  it("parses begincidrange", async function () {
+    // prettier-ignore
+    const str = "1 begincidrange\n" +
+              "<0016> <001B>   0\n" +
+              "endcidrange\n";
+    const stream = new StringStream(str);
+    const cmap = await CMapFactory.create({ encoding: stream });
+    expect(cmap.lookup(0x15)).toBeUndefined();
+    expect(cmap.lookup(0x16)).toEqual(0x00);
+    expect(cmap.lookup(0x1b)).toEqual(0x05);
+    expect(cmap.lookup(0x1c)).toBeUndefined();
+  });
+
+  it("ignores ranges once too many entries have been mapped", async function () {
+    // 16 overlapping (2^20 - 1)-entry ranges leave 15 entries.
+    let str = "16 begincidrange\n";
+    for (let i = 0; i < 16; i++) {
+      str += `<00000000> <000FFFFE> ${i}\n`;
+    }
+    // prettier-ignore
+    str += "endcidrange\n" +
+           "1 begincidrange\n" +
+           "<00000000> <0000000F> 100\n" + // One over budget.
+           "endcidrange\n" +
+           "1 begincidrange\n" +
+           "<00000000> <0000000E> 200\n" + // Fill the budget.
+           "endcidrange\n" +
+           "1 begincidrange\n" +
+           "<00000000> <00000000> 300\n" + // Budget exhausted.
+           "endcidrange\n" +
+           "1 begincidchar\n" +
+           "<00100000> 400\n" + // Not charged to the range budget.
+           "endcidchar\n";
+    const stream = new StringStream(str);
+    const cmap = await CMapFactory.create({ encoding: stream });
+    expect(cmap.lookup(0x00000)).toEqual(200);
+    expect(cmap.lookup(0x0000e)).toEqual(214);
+    expect(cmap.lookup(0x0000f)).toEqual(15 + 0xf);
+    expect(cmap.lookup(0xffffe)).toEqual(15 + 0xffffe);
+    expect(cmap.lookup(0xfffff)).toBeUndefined();
+    expect(cmap.lookup(0x100000)).toEqual(400);
+  });
+
+  it("ignores an oversized range without affecting later ranges", async function () {
+    // prettier-ignore
+    const str = "1 begincidrange\n" +
+              "<00000000> <FFFFFFFF> 0\n" +
+              "endcidrange\n" +
+              "1 begincidrange\n" +
+              "<0000> <0001> 5\n" +
+              "endcidrange\n";
+    const stream = new StringStream(str);
+    const cmap = await CMapFactory.create({ encoding: stream });
+    expect(cmap.lookup(0x0000)).toEqual(5);
+    expect(cmap.lookup(0x0001)).toEqual(6);
+    expect(cmap.lookup(0x0002)).toBeUndefined();
+  });
+
+  it("decodes codespace ranges", async function () {
+    // prettier-ignore
+    const str = "1 begincodespacerange\n" +
+              "<01> <02>\n" +
+              "<00000003> <00000004>\n" +
+              "endcodespacerange\n";
+    const stream = new StringStream(str);
+    const cmap = await CMapFactory.create({ encoding: stream });
+    const c = {};
+    cmap.readCharCode(String.fromCharCode(1), 0, c);
+    expect(c.charcode).toEqual(1);
+    expect(c.length).toEqual(1);
+    cmap.readCharCode(String.fromCharCode(0, 0, 0, 3), 0, c);
+    expect(c.charcode).toEqual(3);
+    expect(c.length).toEqual(4);
+  });
+
+  it("decodes 4 byte codespace ranges", async function () {
+    // prettier-ignore
+    const str = "1 begincodespacerange\n" +
+              "<8EA1A1A1> <8EA1FEFE>\n" +
+              "endcodespacerange\n";
+    const stream = new StringStream(str);
+    const cmap = await CMapFactory.create({ encoding: stream });
+    const c = {};
+    cmap.readCharCode(String.fromCharCode(0x8e, 0xa1, 0xa1, 0xa1), 0, c);
+    expect(c.charcode).toEqual(0x8ea1a1a1);
+    expect(c.length).toEqual(4);
+  });
+
+  it("read usecmap", async function () {
+    const str = "/Adobe-Japan1-1 usecmap\n";
+    const stream = new StringStream(str);
+    const cmap = await CMapFactory.create({
+      encoding: stream,
+      fetchBuiltInCMap,
+      useCMap: null,
+    });
+    expect(cmap).toBeInstanceOf(CMap);
+    expect(cmap.useCMap).not.toBeNull();
+    expect(cmap.builtInCMap).toBeFalse();
+    expect(cmap.size).toEqual(0x20a7);
+    expect(cmap.isIdentityCMap).toBeFalse();
+  });
+
+  it("prefers its own mappings over those inherited through usecmap", async function () {
+    const cmap = await CMapFactory.create({
+      encoding: Name.get("ETenms-B5-H"),
+      fetchBuiltInCMap,
+      useCMap: null,
+    });
+
+    expect(cmap.lookup(0x41)).toEqual(34);
+    expect(cmap.lookup(0xa140)).toEqual(99);
+  });
+
+  it("prefers embedded mappings over those inherited through usecmap", async function () {
+    // prettier-ignore
+    const str = "/ETen-B5-H usecmap\n" +
+              "1 begincidchar\n" +
+              "<41> 34\n" +
+              "endcidchar\n";
+    const stream = new StringStream(str);
+    const cmap = await CMapFactory.create({
+      encoding: stream,
+      fetchBuiltInCMap,
+      useCMap: null,
+    });
+
+    expect(cmap.lookup(0x41)).toEqual(34);
+    expect(cmap.lookup(0xa140)).toEqual(99);
+  });
+
+  it("parses cmapname", async function () {
+    const str = "/CMapName /Identity-H def\n";
+    const stream = new StringStream(str);
+    const cmap = await CMapFactory.create({ encoding: stream });
+    expect(cmap.name).toEqual("Identity-H");
+  });
+
+  it("parses wmode", async function () {
+    const str = "/WMode 1 def\n";
+    const stream = new StringStream(str);
+    const cmap = await CMapFactory.create({ encoding: stream });
+    expect(cmap.vertical).toBeTrue();
+  });
+
+  it("loads built in cmap", async function () {
+    const cmap = await CMapFactory.create({
+      encoding: Name.get("Adobe-Japan1-1"),
+      fetchBuiltInCMap,
+      useCMap: null,
+    });
+    expect(cmap).toBeInstanceOf(CMap);
+    expect(cmap.useCMap).toBeNull();
+    expect(cmap.builtInCMap).toBeTrue();
+    expect(cmap.size).toEqual(0x20a7);
+    expect(cmap.isIdentityCMap).toBeFalse();
+  });
+
+  it("loads built in identity cmap", async function () {
+    const cmap = await CMapFactory.create({
+      encoding: Name.get("Identity-H"),
+      fetchBuiltInCMap,
+      useCMap: null,
+    });
+    expect(cmap).toBeInstanceOf(IdentityCMap);
+    expect(cmap.vertical).toBeFalse();
+    expect(cmap.size).toEqual(0x10000);
+    expect(function () {
+      return cmap.isIdentityCMap;
+    }).toThrowError("should not access .isIdentityCMap");
+  });
+
+  it("attempts to load a non-existent built-in CMap", async function () {
+    try {
+      await CMapFactory.create({
+        encoding: Name.get("null"),
+        fetchBuiltInCMap,
+        useCMap: null,
+      });
+
+      // Shouldn't get here.
+      expect(false).toBeTrue();
+    } catch (reason) {
+      expect(reason).toBeInstanceOf(Error);
+      expect(reason.message).toEqual("Unknown CMap name: null");
+    }
+  });
+
+  it("attempts to load a built-in CMap without the necessary API parameters", async function () {
+    function tmpFetchBuiltInCMap(name) {
+      const binaryDataFactory = new DefaultBinaryDataFactory({});
+      return fetchBuiltInCMapHelper(
+        binaryDataFactory,
+        /* cMapPacked = */ true,
+        name
+      );
+    }
+
+    try {
+      await CMapFactory.create({
+        encoding: Name.get("Adobe-Japan1-1"),
+        fetchBuiltInCMap: tmpFetchBuiltInCMap,
+        useCMap: null,
+      });
+
+      // Shouldn't get here.
+      expect(false).toBeTrue();
+    } catch (reason) {
+      expect(reason).toBeInstanceOf(Error);
+      expect(reason.message).toEqual(
+        "Ensure that the `cMapUrl` API parameter is provided."
+      );
+    }
+  });
+
+  it("attempts to load a built-in CMap with inconsistent API parameters", async function () {
+    function tmpFetchBuiltInCMap(name) {
+      const binaryDataFactory = new DefaultBinaryDataFactory({
+        cMapUrl: CMAP_URL,
+      });
+      return fetchBuiltInCMapHelper(
+        binaryDataFactory,
+        /* cMapPacked = */ false,
+        name
+      );
+    }
+
+    try {
+      await CMapFactory.create({
+        encoding: Name.get("Adobe-Japan1-1"),
+        fetchBuiltInCMap: tmpFetchBuiltInCMap,
+        useCMap: null,
+      });
+
+      // Shouldn't get here.
+      expect(false).toBeTrue();
+    } catch (reason) {
+      expect(reason).toBeInstanceOf(Error);
+      const message = reason.message;
+      expect(message.startsWith("Unable to load CMap data at: ")).toBeTrue();
+      expect(message.endsWith("/external/bcmaps/Adobe-Japan1-1")).toBeTrue();
+    }
+  });
+});

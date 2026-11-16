@@ -1,0 +1,489 @@
+/* Copyright 2017 Mozilla Foundation
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+import { createIdFactory, XRefMock } from "./test_utils.js";
+import { Dict, Name, Ref, RefMap } from "../../src/core/primitives.js";
+import { FormatError, OPS } from "../../src/shared/util.js";
+import { Stream, StringStream } from "../../src/core/stream.js";
+import { GlobalColorSpaceCache } from "../../src/core/image_utils.js";
+import { OperatorList } from "../../src/core/operator_list.js";
+import { PartialEvaluator } from "../../src/core/evaluator.js";
+import { WorkerTask } from "../../src/core/worker.js";
+
+describe("evaluator", function () {
+  async function runOperatorListCheck(
+    evaluator,
+    stream,
+    resources = Dict.empty
+  ) {
+    const operatorList = new OperatorList();
+    const task = new WorkerTask("OperatorListCheck");
+    await evaluator.getOperatorList({
+      stream,
+      task,
+      resources,
+      operatorList,
+    });
+    return operatorList;
+  }
+
+  async function runTextContentCheck(evaluator, stream) {
+    const items = [];
+    const sink = {
+      desiredSize: 100,
+      ready: Promise.resolve(),
+      enqueue(chunk) {
+        items.push(...chunk.items);
+      },
+    };
+    const task = new WorkerTask("TextContentCheck");
+    await evaluator.getTextContent({
+      stream,
+      task,
+      resources: Dict.empty,
+      includeMarkedContent: true,
+      sink,
+    });
+    return items;
+  }
+
+  let partialEvaluator;
+
+  beforeAll(function () {
+    partialEvaluator = new PartialEvaluator({
+      xref: new XRefMock(),
+      handler: { send() {} },
+      pageIndex: 0,
+      idFactory: createIdFactory(/* pageIndex = */ 0),
+      globalColorSpaceCache: new GlobalColorSpaceCache(),
+    });
+  });
+
+  afterAll(function () {
+    partialEvaluator = null;
+  });
+
+  describe("splitCombinedOperations", function () {
+    it("should reject unknown operations", async function () {
+      const stream = new StringStream("fTT");
+      const result = await runOperatorListCheck(partialEvaluator, stream);
+
+      expect(result.fnArray.length).toEqual(1);
+      expect(result.fnArray[0]).toEqual(OPS.constructPath);
+      expect(result.argsArray[0]).toEqual([OPS.fill, [null], null]);
+    });
+
+    it("should handle one operation", async function () {
+      const stream = new StringStream("W");
+      const result = await runOperatorListCheck(partialEvaluator, stream);
+
+      expect(result.fnArray).toEqual([OPS.clip]);
+    });
+
+    it("should handle two glued operations", async function () {
+      const imgDict = new Dict();
+      imgDict.set("Subtype", Name.get("Image"));
+      imgDict.set("Width", 1);
+      imgDict.set("Height", 1);
+
+      const imgStream = new Stream([0]);
+      imgStream.dict = imgDict;
+
+      const xObject = new Dict();
+      xObject.set("Res1", imgStream);
+
+      const resources = new Dict();
+      resources.set("XObject", xObject);
+
+      const stream = new StringStream("q/Res1 DoQ");
+      const result = await runOperatorListCheck(
+        partialEvaluator,
+        stream,
+        resources
+      );
+      expect(result.fnArray).toEqual([
+        OPS.save,
+        OPS.dependency,
+        OPS.paintImageXObject,
+        OPS.restore,
+      ]);
+      expect(result.argsArray).toEqual([
+        null,
+        ["img_p0_1"],
+        ["img_p0_1", 1, 1],
+        null,
+      ]);
+    });
+
+    it("should handle three glued operations", async function () {
+      const stream = new StringStream("fff");
+      const result = await runOperatorListCheck(partialEvaluator, stream);
+
+      expect(result.fnArray).toEqual([
+        OPS.constructPath,
+        OPS.constructPath,
+        OPS.constructPath,
+      ]);
+      expect(result.argsArray[0][0]).toEqual(OPS.fill);
+      expect(result.argsArray[1][0]).toEqual(OPS.fill);
+      expect(result.argsArray[2][0]).toEqual(OPS.fill);
+    });
+
+    it("should handle three glued operations #2", async function () {
+      const stream = new StringStream("B*Bf*");
+      const result = await runOperatorListCheck(partialEvaluator, stream);
+
+      expect(result.fnArray).toEqual([
+        OPS.constructPath,
+        OPS.constructPath,
+        OPS.constructPath,
+      ]);
+      expect(result.argsArray[0][0]).toEqual(OPS.eoFillStroke);
+      expect(result.argsArray[1][0]).toEqual(OPS.fillStroke);
+      expect(result.argsArray[2][0]).toEqual(OPS.eoFill);
+    });
+
+    it("should handle glued operations and operands", async function () {
+      const stream = new StringStream("f5 Ts");
+      const result = await runOperatorListCheck(partialEvaluator, stream);
+
+      expect(result.fnArray.length).toEqual(2);
+      expect(result.fnArray[0]).toEqual(OPS.constructPath);
+      expect(result.fnArray[1]).toEqual(OPS.setTextRise);
+      expect(result.argsArray.length).toEqual(2);
+      expect(result.argsArray[1].length).toEqual(1);
+      expect(result.argsArray[1][0]).toEqual(5);
+    });
+
+    it("should handle glued operations and literals", async function () {
+      const stream = new StringStream("trueifalserinulln");
+      const result = await runOperatorListCheck(partialEvaluator, stream);
+
+      expect(result.fnArray.length).toEqual(3);
+      expect(result.fnArray[0]).toEqual(OPS.setFlatness);
+      expect(result.fnArray[1]).toEqual(OPS.setRenderingIntent);
+      expect(result.fnArray[2]).toEqual(OPS.constructPath);
+      expect(result.argsArray.length).toEqual(3);
+      expect(result.argsArray[0].length).toEqual(1);
+      expect(result.argsArray[0][0]).toBeTrue();
+      expect(result.argsArray[1].length).toEqual(1);
+      expect(result.argsArray[1][0]).toBeFalse();
+      expect(result.argsArray[2]).toEqual([OPS.endPath, [null], null]);
+    });
+  });
+
+  describe("validateNumberOfArgs", function () {
+    it("should execute if correct number of arguments", async function () {
+      const stream = new StringStream("5 1 d0");
+      const result = await runOperatorListCheck(partialEvaluator, stream);
+      expect(result.argsArray[0][0]).toEqual(5);
+      expect(result.argsArray[0][1]).toEqual(1);
+      expect(result.fnArray[0]).toEqual(OPS.setCharWidth);
+    });
+
+    it("should execute if too many arguments", async function () {
+      const stream = new StringStream("5 1 4 d0");
+      const result = await runOperatorListCheck(partialEvaluator, stream);
+      expect(result.argsArray[0][0]).toEqual(1);
+      expect(result.argsArray[0][1]).toEqual(4);
+      expect(result.fnArray[0]).toEqual(OPS.setCharWidth);
+    });
+
+    it("should execute if nested commands", async function () {
+      const gState = new Dict();
+      gState.set("LW", 2);
+      gState.set("CA", 0.5);
+
+      const extGState = new Dict();
+      extGState.set("GS2", gState);
+
+      const resources = new Dict();
+      resources.set("ExtGState", extGState);
+
+      const stream = new StringStream("/F2 /GS2 gs 5.711 Tf");
+      const result = await runOperatorListCheck(
+        partialEvaluator,
+        stream,
+        resources
+      );
+      expect(result.fnArray.length).toEqual(3);
+      expect(result.fnArray[0]).toEqual(OPS.setGState);
+      expect(result.fnArray[1]).toEqual(OPS.dependency);
+      expect(result.fnArray[2]).toEqual(OPS.setFont);
+      expect(result.argsArray.length).toEqual(3);
+      expect(result.argsArray[0]).toEqual([
+        [
+          ["LW", 2],
+          ["CA", 0.5],
+        ],
+      ]);
+      expect(result.argsArray[1]).toEqual(["g_font_error"]);
+      expect(result.argsArray[2]).toEqual(["g_font_error", 5.711]);
+    });
+
+    it("should skip if too few arguments", async function () {
+      const stream = new StringStream("5 d0");
+      const result = await runOperatorListCheck(partialEvaluator, stream);
+      expect(result.argsArray).toEqual([]);
+      expect(result.fnArray).toEqual([]);
+    });
+
+    it(
+      "should error if (many) path operators have too few arguments " +
+        "(bug 1443140)",
+      async function () {
+        const NUM_INVALID_OPS = 25;
+
+        // Non-path operators, should be ignored.
+        const invalidMoveText = "10 Td\n".repeat(NUM_INVALID_OPS);
+        const moveTextStream = new StringStream(invalidMoveText);
+        const result = await runOperatorListCheck(
+          partialEvaluator,
+          moveTextStream
+        );
+        expect(result.argsArray).toEqual([]);
+        expect(result.fnArray).toEqual([]);
+
+        // Path operators, should throw error.
+        const invalidLineTo = "20 l\n".repeat(NUM_INVALID_OPS);
+        const lineToStream = new StringStream(invalidLineTo);
+
+        await expectAsync(
+          runOperatorListCheck(partialEvaluator, lineToStream)
+        ).toBeRejectedWithError(
+          FormatError,
+          "Invalid command l: expected 2 args, but received 1 args."
+        );
+      }
+    );
+
+    it("should error on paintXObject if name is missing", async function () {
+      const stream = new StringStream("/ Do");
+
+      await expectAsync(
+        runOperatorListCheck(partialEvaluator, stream)
+      ).toBeRejectedWithError(FormatError, "XObject should be a stream");
+    });
+
+    it("should skip paintXObject if subtype is PS", async function () {
+      const xobjStreamDict = new Dict();
+      xobjStreamDict.set("Subtype", Name.get("PS"));
+      const xobjStream = new Stream([], 0, 0, xobjStreamDict);
+
+      const xobjs = new Dict();
+      xobjs.set("Res1", xobjStream);
+
+      const resources = new Dict();
+      resources.set("XObject", xobjs);
+
+      const stream = new StringStream("/Res1 Do");
+      const result = await runOperatorListCheck(
+        partialEvaluator,
+        stream,
+        resources
+      );
+      expect(result.argsArray).toEqual([]);
+      expect(result.fnArray).toEqual([]);
+    });
+
+    it("should skip empty set fill/stroke color operators", async function () {
+      const colorOps = [
+        "SC",
+        "SCN",
+        "sc",
+        "scn",
+        "G",
+        "g",
+        "RG",
+        "rg",
+        "K",
+        "k",
+      ];
+
+      for (const op of colorOps) {
+        const stream = new StringStream(`/DeviceRGB CS /DeviceRGB cs ${op}`);
+        const result = await runOperatorListCheck(partialEvaluator, stream);
+        expect(result.argsArray).toEqual([]);
+        expect(result.fnArray).toEqual([]);
+      }
+    });
+
+    it("should handle invalid dash stuff", async function () {
+      const stream = new StringStream("[ none ] 0 d");
+      const result = await runOperatorListCheck(partialEvaluator, stream);
+      expect(result.argsArray[0][0]).toEqual([]);
+      expect(result.argsArray[0][1]).toEqual(0);
+      expect(result.fnArray[0]).toEqual(OPS.setDash);
+    });
+  });
+
+  describe("thread control", function () {
+    it("should abort operator list parsing", async function () {
+      const stream = new StringStream("qqQQ");
+      const resources = new Dict();
+      const result = new OperatorList();
+      const task = new WorkerTask("OperatorListAbort");
+      task.terminate();
+
+      await expectAsync(
+        partialEvaluator.getOperatorList({
+          stream,
+          task,
+          resources,
+          operatorList: result,
+        })
+      ).toBeRejectedWithError(Error, "Worker task was terminated");
+      expect(result.fnArray).toEqual([]);
+    });
+
+    it("should abort text content parsing", async function () {
+      const resources = new Dict();
+      const stream = new StringStream("qqQQ");
+      const task = new WorkerTask("TextContentAbort");
+      task.terminate();
+
+      await expectAsync(
+        partialEvaluator.getTextContent({ stream, task, resources })
+      ).toBeRejectedWithError(Error, "Worker task was terminated");
+    });
+  });
+
+  describe("text content", function () {
+    it("should close marked content opened in a text object", async function () {
+      const stream = new StringStream(
+        "/Outer BMC BT /Inner BMC ET /Sibling BMC EMC EMC"
+      );
+      const items = await runTextContentCheck(partialEvaluator, stream);
+
+      expect(items).toEqual([
+        { type: "beginMarkedContent", tag: "Outer" },
+        { type: "beginMarkedContent", tag: "Inner" },
+        { type: "endMarkedContent" },
+        { type: "beginMarkedContent", tag: "Sibling" },
+        { type: "endMarkedContent" },
+        { type: "endMarkedContent" },
+      ]);
+    });
+
+    it("should preserve marked content opened before a text object", async function () {
+      const stream = new StringStream(
+        "/Outer BMC BT ET BT ET /Inner BMC EMC EMC"
+      );
+      const items = await runTextContentCheck(partialEvaluator, stream);
+
+      expect(items).toEqual([
+        { type: "beginMarkedContent", tag: "Outer" },
+        { type: "beginMarkedContent", tag: "Inner" },
+        { type: "endMarkedContent" },
+        { type: "endMarkedContent" },
+      ]);
+    });
+
+    it("should not close marked content on an unmatched endText", async function () {
+      const stream = new StringStream("/Outer BMC ET /Inner BMC EMC EMC");
+      const items = await runTextContentCheck(partialEvaluator, stream);
+
+      expect(items).toEqual([
+        { type: "beginMarkedContent", tag: "Outer" },
+        { type: "beginMarkedContent", tag: "Inner" },
+        { type: "endMarkedContent" },
+        { type: "endMarkedContent" },
+      ]);
+    });
+  });
+
+  describe("operator list", function () {
+    class StreamSinkMock {
+      enqueue() {}
+    }
+
+    it("should get correct length after flushing", function () {
+      const operatorList = new OperatorList(null, new StreamSinkMock());
+      operatorList.addOp(OPS.save, null);
+      operatorList.addOp(OPS.restore, null);
+
+      expect(operatorList.length).toEqual(2);
+
+      operatorList.flush();
+
+      expect(operatorList.length).toEqual(0);
+    });
+  });
+
+  describe("fonts", function () {
+    it("should use distinct names for concurrently loaded fallback fonts", async function () {
+      const evaluator = new PartialEvaluator({
+        xref: new XRefMock(),
+        idFactory: createIdFactory(/* pageIndex = */ 0),
+        fontCache: new RefMap(),
+        systemFontCache: new Map(),
+      }).clone({ ignoreErrors: true });
+
+      // Missing refs share the fallback dictionary.
+      const [font1, font2] = await Promise.all(
+        [10, 11].map(num =>
+          evaluator.loadFont(null, Ref.get(num, 0), Dict.empty)
+        )
+      );
+
+      expect(font1.dict).toBe(font2.dict);
+      expect(font1.loadedName).not.toEqual(font2.loadedName);
+    });
+  });
+
+  describe("graphics-state operators", function () {
+    it("should ignore a restore without a save", async function () {
+      const stream = new StringStream("Q q Q Q");
+      const result = await runOperatorListCheck(partialEvaluator, stream);
+      expect(result.fnArray).toEqual([OPS.save, OPS.restore]);
+    });
+
+    it("should close opened saves", async function () {
+      const stream = new StringStream("qq");
+      const result = await runOperatorListCheck(partialEvaluator, stream);
+
+      expect(result.fnArray).toEqual([
+        OPS.save,
+        OPS.save,
+        OPS.restore,
+        OPS.restore,
+      ]);
+    });
+
+    it("should convert negative line width to absolute value in the graphic state", async function () {
+      const gState = new Dict();
+      gState.set("LW", -5);
+      const extGState = new Dict();
+      extGState.set("GSneg", gState);
+
+      const resources = new Dict();
+      resources.set("ExtGState", extGState);
+
+      const stream = new StringStream("/GSneg gs");
+      const result = await runOperatorListCheck(
+        partialEvaluator,
+        stream,
+        resources
+      );
+
+      expect(result.fnArray).toEqual([OPS.setGState]);
+
+      const stateEntries = result.argsArray[0][0];
+      const lwEntry = stateEntries.find(([key]) => key === "LW");
+      expect(lwEntry).toBeDefined();
+      expect(lwEntry[1]).toEqual(5);
+    });
+  });
+});

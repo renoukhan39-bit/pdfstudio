@@ -1,0 +1,917 @@
+package chromium
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"log/slog"
+	"net"
+	"net/http"
+	"net/url"
+	"slices"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/chromedp/cdproto/cdp"
+	"github.com/chromedp/cdproto/fetch"
+	"github.com/chromedp/cdproto/inspector"
+	"github.com/chromedp/cdproto/network"
+	"github.com/chromedp/cdproto/page"
+	"github.com/chromedp/cdproto/runtime"
+	"github.com/chromedp/cdproto/target"
+	"github.com/chromedp/chromedp"
+	"github.com/dlclark/regexp2/v2"
+	"golang.org/x/sync/errgroup"
+
+	"github.com/gotenberg/gotenberg/v9/pkg/gotenberg"
+)
+
+// listenForNetworkActivity accumulates per-conversion network activity into
+// aggregate from the always-on Network domain events. It is a no-op when
+// aggregate is nil.
+func listenForNetworkActivity(ctx context.Context, aggregate *networkAggregate) {
+	if aggregate == nil {
+		return
+	}
+
+	chromedp.ListenTarget(ctx, func(ev any) {
+		switch e := ev.(type) {
+		case *network.EventResponseReceived:
+			aggregate.onResponseReceived(e)
+		case *network.EventLoadingFinished:
+			aggregate.onLoadingFinished(e)
+		case *network.EventLoadingFailed:
+			aggregate.onLoadingFailed(e)
+		}
+	})
+}
+
+type eventWebSocketCreatedOptions struct {
+	allowList, denyList []*regexp2.Regexp
+	denyPrivateIPs      bool
+	denyPublicIPs       bool
+	// hostMapping applies --chromium-host-resolver-rules, or is nil.
+	hostMapping gotenberg.HostMapping
+
+	// decideTunnel is the pinning proxy's CONNECT verdict, or nil when the
+	// pinning proxy is not in use.
+	decideTunnel func(ctx context.Context, hostport string, deadline time.Time) (gotenberg.OutboundDecision, error)
+	failures     *conversionFailures
+	cancel       context.CancelFunc
+}
+
+// listenForEventWebSocketCreated validates the target of every WebSocket
+// handshake against the same allow / deny lists and IP-class policy as
+// [listenForEventRequestPaused]. Chromium never surfaces a WebSocket
+// handshake as a fetch.EventRequestPaused, so without this listener a page
+// could open a WebSocket to an address the outbound filter would otherwise
+// block. See https://github.com/gotenberg/gotenberg/issues/1011.
+//
+// This listener records an operator-visible warning with the full ws:// URL.
+// The connection itself is severed by the pinning proxy, which every
+// WebSocket handshake traverses once the implicit loopback / link-local proxy
+// bypass is removed (see the "<-loopback>" flag in browser.go). When the
+// operator configures a custom proxy, the pinning proxy is not started and
+// the WebSocket follows the operator's egress path. A handshake cannot be
+// aborted through the CDP Network domain, so the listener fails the
+// conversion instead: nothing the page read through the WebSocket reaches
+// the client. A Web Worker is a separate target this listener does
+// not observe: only the operator's proxy can refuse its WebSockets.
+//
+// The pinning proxy only sees the host and port of the tunnel, so a deny-list
+// rule that names a path, such as "^wss://host/ws", cannot sever it. When the
+// deny-list refuses the full URL but the proxy would admit the tunnel, the
+// listener fails the conversion instead, so that nothing the page read
+// through the WebSocket reaches the client.
+func listenForEventWebSocketCreated(ctx context.Context, logger *slog.Logger, options eventWebSocketCreatedOptions) {
+	chromedp.ListenTarget(ctx, func(ev any) {
+		e, ok := ev.(*network.EventWebSocketCreated)
+		if !ok {
+			return
+		}
+
+		go func() {
+			logger.DebugContext(ctx, fmt.Sprintf("event EventWebSocketCreated fired for '%s'", gotenberg.RedactURL(e.URL)))
+
+			deadline, ok := ctx.Deadline()
+			if !ok {
+				logger.ErrorContext(ctx, "context has no deadline, cannot filter WebSocket URL")
+				return
+			}
+
+			err := gotenberg.FilterOutboundURL(ctx, e.URL, options.allowList, options.denyList, deadline,
+				gotenberg.WithDenyPrivateIPs(options.denyPrivateIPs),
+				gotenberg.WithDenyPublicIPs(options.denyPublicIPs),
+				gotenberg.WithHostMapping(options.hostMapping),
+			)
+			if err == nil {
+				return
+			}
+
+			logger.WarnContext(ctx, err.Error())
+
+			if options.decideTunnel == nil {
+				// No pinning proxy can sever the handshake.
+				options.failures.denyWebSocket(err)
+				options.cancel()
+				return
+			}
+
+			deniedErr := gotenberg.FilterDenyList(e.URL, options.denyList, deadline)
+			if deniedErr == nil {
+				// Not a deny-list refusal: the proxy runs the same allow-list
+				// and IP-class checks on the tunnel.
+				return
+			}
+
+			hostport, ok := webSocketHostPort(e.URL)
+			if !ok {
+				return
+			}
+
+			_, tunnelErr := options.decideTunnel(ctx, hostport, deadline)
+			if tunnelErr != nil {
+				// The proxy refuses the tunnel too.
+				return
+			}
+
+			options.failures.denyWebSocket(deniedErr)
+			options.cancel()
+		}()
+	})
+}
+
+// webSocketHostPort returns the host and port Chromium sends in the CONNECT
+// request for the ws:// or wss:// URL rawURL.
+func webSocketHostPort(rawURL string) (string, bool) {
+	parsed, err := url.Parse(rawURL)
+	if err != nil || parsed.Hostname() == "" {
+		return "", false
+	}
+
+	port := parsed.Port()
+	if port == "" {
+		switch strings.ToLower(parsed.Scheme) {
+		case "ws":
+			port = "80"
+		case "wss":
+			port = "443"
+		default:
+			return "", false
+		}
+	}
+
+	return net.JoinHostPort(strings.ToLower(parsed.Hostname()), port), true
+}
+
+type eventRequestPausedOptions struct {
+	// requestCtx is the client request's context, which the record of a
+	// refused request carries, for its trace.
+	requestCtx context.Context
+	// localPage is the page the route wrote, which the lists do not govern.
+	// See [Options.LocalPage].
+	localPage           string
+	allowList, denyList []*regexp2.Regexp
+	denyPrivateIPs      bool
+	denyPublicIPs       bool
+	// hostMapping applies --chromium-host-resolver-rules, or is nil.
+	hostMapping         gotenberg.HostMapping
+	allowedFilePrefixes []string
+	extraHttpHeaders    []ExtraHttpHeader
+}
+
+// logContext returns the context a log record of the listener carries: the
+// client request's, or fallback without one.
+func (o eventRequestPausedOptions) logContext(fallback context.Context) context.Context {
+	if o.requestCtx != nil {
+		return o.requestCtx
+	}
+
+	return fallback
+}
+
+// listenForEventRequestPaused listens for requests to check if they are
+// allowed or not.  It also set the extra HTTP headers, if any.
+// See https://github.com/gotenberg/gotenberg/issues/1011.
+// TODO: https://chromedevtools.github.io/devtools-protocol/tot/Network/#method-setBlockedURLs (experimental for now).
+func listenForEventRequestPaused(ctx context.Context, logger *slog.Logger, options eventRequestPausedOptions) {
+	if len(options.extraHttpHeaders) == 0 {
+		logger.DebugContext(ctx, "no extra HTTP headers")
+	} else {
+		logger.DebugContext(ctx, fmt.Sprintf("extra HTTP headers: %s", extraHttpHeaderNames(options.extraHttpHeaders)))
+	}
+
+	// Shared by every scope match of this conversion, across all paused
+	// requests. Its lifetime is the conversion, as this function is called once
+	// per conversion with that conversion's context.
+	budget := newScopeMatchBudget(scopeMatchBudgetPerConversion)
+
+	chromedp.ListenTarget(ctx, func(ev any) {
+		if e, ok := ev.(*fetch.EventRequestPaused); ok {
+			go func() {
+				// The logs name the URL without its credentials, query and
+				// fragment, which may hold a token.
+				requestURL := gotenberg.RedactURL(e.Request.URL)
+				logger.DebugContext(ctx, fmt.Sprintf("event EventRequestPaused fired for '%s'", requestURL))
+				allow := true
+
+				deadline, ok := ctx.Deadline()
+				if !ok {
+					logger.ErrorContext(ctx, "context has no deadline, cannot filter URL")
+					return
+				}
+
+				var err error
+				if !isLocalPage(e.Request.URL, options.localPage) {
+					err = gotenberg.FilterOutboundURL(ctx, e.Request.URL, options.allowList, options.denyList, deadline,
+						gotenberg.WithDenyPrivateIPs(options.denyPrivateIPs),
+						gotenberg.WithDenyPublicIPs(options.denyPublicIPs),
+						gotenberg.WithHostMapping(options.hostMapping),
+					)
+				}
+				if err != nil {
+					// The page renders without the request: only the logs
+					// tell. The main URL never gets here refused, as the
+					// route answers 403 for it before navigating.
+					gotenberg.LogOutboundRefusal(options.logContext(ctx), logger, "outbound request blocked by the Chromium filters", e.Request.URL, err)
+					allow = false
+				}
+
+				reason := network.ErrorReasonAccessDenied
+				if errors.Is(err, gotenberg.ErrUnresolvableHost) && e.ResourceType != network.ResourceTypeDocument {
+					// Without the pinning proxy, Chromium would have reported
+					// the failed lookup itself, and failOnResourceLoadingFailed
+					// would catch it. A Document keeps AccessDenied for the
+					// reason below.
+					reason = network.ErrorReasonNameNotResolved
+				}
+
+				// Sub-resource file:// URLs are opt-in per route. A route
+				// that renders local files (HTML, Markdown) populates
+				// allowedFilePrefixes with the request working directory
+				// so its own assets load while sibling requests' /tmp
+				// paths stay out of reach. Every other route leaves the
+				// slice empty; treat that as default-deny so a file://
+				// sub-resource that slips past the deny-list (which
+				// exempts /tmp/) still cannot read the working
+				// directories of other in-flight conversions.
+				if allow && strings.HasPrefix(e.Request.URL, "file://") && !isAllowedFileSubResource(e.Request.URL, options.allowedFilePrefixes) {
+					logger.WarnContext(options.logContext(ctx), "outbound request blocked by the Chromium filters",
+						slog.String("url", gotenberg.RedactURL(e.Request.URL)),
+						slog.String("rule", "file-prefix"),
+					)
+					allow = false
+				}
+
+				cctx := chromedp.FromContext(ctx)
+				executorCtx := cdp.WithExecutor(ctx, cctx.Target)
+
+				if !allow {
+					// Use AccessDenied so Chromium emits net::ERR_ACCESS_DENIED,
+					// which is intentionally absent from the EventLoadingFailed
+					// known-errors list. Routing through BlockedByClient would
+					// surface the failure, but the Document-type dispatcher in
+					// listenForEventLoadingFailed cannot distinguish a blocked
+					// iframe (sub-frame Document) from a main-page Document, and
+					// would attribute the iframe failure to the main page.
+					// Filter-block observability is provided by the warn log
+					// above instead.
+					req := fetch.FailRequest(e.RequestID, reason)
+					err = req.Do(executorCtx)
+					if err != nil {
+						logger.ErrorContext(ctx, fmt.Sprintf("fail request: %s", err))
+					}
+					return
+				}
+
+				req := fetch.ContinueRequest(e.RequestID)
+
+				var extraHttpHeadersToSet []ExtraHttpHeader
+				if len(options.extraHttpHeaders) > 0 {
+					// The user wants to set extra HTTP headers.
+
+					// First, we have to check if at least one header has to be
+					// set for the current request.
+					for _, header := range options.extraHttpHeaders {
+						// This goroutine outlives the response: nothing cancels an
+						// in-flight match, so stop as soon as the conversion is over.
+						select {
+						case <-ctx.Done():
+							return
+						default:
+						}
+
+						if header.Scope == nil {
+							// Non-scoped header.
+							logger.DebugContext(ctx, fmt.Sprintf("extra HTTP header '%s' will be set for request URL '%s'", header.Name, requestURL))
+							extraHttpHeadersToSet = append(extraHttpHeadersToSet, header)
+							continue
+						}
+
+						if !budget.tryAcquire() {
+							// Treat the remaining scoped headers as non-matching rather
+							// than spending more CPU on a request the client may already
+							// have given up on.
+							logger.WarnContext(ctx, fmt.Sprintf("scope matching budget of %s exhausted, extra HTTP header '%s' and any subsequent scoped header will not be set; simplify the 'scope' patterns or reduce the number of scoped headers", scopeMatchBudgetPerConversion, header.Name))
+							break
+						}
+
+						matchStart := time.Now()
+						ok, err := gotenberg.MatchPattern(header.Scope, e.Request.URL)
+						budget.consume(time.Since(matchStart))
+
+						switch {
+						case err != nil:
+							logger.ErrorContext(ctx, fmt.Sprintf("fail to match extra HTTP header '%s' scope with URL '%s': %s", header.Name, requestURL, err))
+						case ok:
+							logger.DebugContext(ctx, fmt.Sprintf("extra HTTP header '%s' (scoped) will be set for request URL '%s'", header.Name, requestURL))
+							extraHttpHeadersToSet = append(extraHttpHeadersToSet, header)
+						default:
+							logger.DebugContext(ctx, fmt.Sprintf("scoped extra HTTP header '%s' (scoped) will not be set for request URL '%s'", header.Name, requestURL))
+						}
+					}
+				}
+
+				if len(extraHttpHeadersToSet) > 0 {
+					logger.DebugContext(ctx, fmt.Sprintf("setting extra HTTP headers for request URL '%s': %s", requestURL, extraHttpHeaderNames(extraHttpHeadersToSet)))
+
+					originalHeaders := e.Request.Headers
+					headers := make(map[string]string)
+
+					for key, value := range originalHeaders {
+						strValue, ok := value.(string)
+						if ok {
+							headers[key] = strValue
+						} else {
+							logger.ErrorContext(ctx, fmt.Sprintf("ignoring header '%s' for URL '%s' since it cannot be cast to a string", key, requestURL))
+						}
+					}
+
+					var headersEntries []*fetch.HeaderEntry
+					for key, value := range headers {
+						headersEntries = append(headersEntries, &fetch.HeaderEntry{
+							Name:  key,
+							Value: value,
+						})
+					}
+					for _, header := range extraHttpHeadersToSet {
+						headersEntries = append(headersEntries, &fetch.HeaderEntry{
+							Name:  header.Name,
+							Value: header.Value,
+						})
+					}
+
+					req.Headers = headersEntries
+				}
+
+				err = req.Do(executorCtx)
+				if err != nil {
+					logger.ErrorContext(ctx, fmt.Sprintf("continue request: %s", err))
+				}
+			}()
+		}
+	})
+}
+
+type eventResponseReceivedOptions struct {
+	failOnHttpStatusCodes           []int64
+	failOnResourceOnHttpStatusCode  []int64
+	ignoreResourceHttpStatusDomains []string
+	failures                        *conversionFailures
+	cancelOnMainPageError           context.CancelFunc
+}
+
+// listenForEventResponseReceived listens for an invalid HTTP status code
+// returned by the main page or by one or more resources.
+// See:
+// https://github.com/gotenberg/gotenberg/issues/613.
+// https://github.com/gotenberg/gotenberg/issues/1021.
+func listenForEventResponseReceived(
+	ctx context.Context,
+	logger *slog.Logger,
+	options eventResponseReceivedOptions,
+) {
+	normalizedIgnoreDomains := normalizeDomains(options.ignoreResourceHttpStatusDomains)
+
+	for _, code := range []int64{199, 299, 399, 499, 599} {
+		if slices.Contains(options.failOnHttpStatusCodes, code) {
+			for i := code - 99; i <= code; i++ {
+				options.failOnHttpStatusCodes = append(options.failOnHttpStatusCodes, i)
+			}
+		}
+
+		if slices.Contains(options.failOnResourceOnHttpStatusCode, code) {
+			for i := code - 99; i <= code; i++ {
+				options.failOnResourceOnHttpStatusCode = append(options.failOnResourceOnHttpStatusCode, i)
+			}
+		}
+	}
+
+	chromedp.ListenTarget(ctx, func(ev any) {
+		if ev, ok := ev.(*network.EventResponseReceived); ok {
+			// chromedp sets the target before it dispatches the target's
+			// events, so the target is known here.
+			var targetID target.ID
+			if c := chromedp.FromContext(ctx); c != nil && c.Target != nil {
+				targetID = c.Target.TargetID
+			}
+
+			if isMainPageResponse(ev, targetID) {
+				logger.DebugContext(ctx, fmt.Sprintf("event EventResponseReceived fired for main page '%s': %s", gotenberg.RedactURL(ev.Response.URL), statusLine(ev.Response.Status, ev.Response.StatusText)))
+
+				if slices.Contains(options.failOnHttpStatusCodes, ev.Response.Status) {
+					options.failures.failMainPageStatus(errors.New(statusLine(ev.Response.Status, ev.Response.StatusText)))
+
+					// Cancel the task context so that any in-flight wait
+					// operations (waitForSelector, waitForExpression, etc.)
+					// abort immediately instead of polling until timeout.
+					// See https://github.com/gotenberg/gotenberg/issues/1492.
+					if options.cancelOnMainPageError != nil {
+						options.cancelOnMainPageError()
+					}
+				}
+
+				return
+			}
+
+			// Redacting the URL parses it, per sub-resource, on chromedp's
+			// single per-target event goroutine while that goroutine holds the
+			// mutex it also takes to dispatch command responses. At the default
+			// log level the result is discarded, so gate it on the level rather
+			// than let slog drop it after the fact.
+			if logger.Enabled(ctx, slog.LevelDebug) {
+				logger.DebugContext(ctx, fmt.Sprintf("event EventResponseReceived fired for resource '%s': %s", gotenberg.RedactURL(ev.Response.URL), statusLine(ev.Response.Status, ev.Response.StatusText)))
+			}
+
+			if slices.Contains(options.failOnResourceOnHttpStatusCode, ev.Response.Status) {
+				if !shouldCheckResourceHttpStatusCode(ev.Response.URL, normalizedIgnoreDomains) {
+					logger.DebugContext(ctx, fmt.Sprintf("skip resource HTTP status code check for '%s' due to domain filtering", gotenberg.RedactURL(ev.Response.URL)))
+					return
+				}
+
+				// The client's message and the logs share this error: both
+				// name the resource without its query.
+				options.failures.failResourceStatus(
+					fmt.Errorf("%s - %s", gotenberg.RedactURL(ev.Response.URL), statusLine(ev.Response.Status, ev.Response.StatusText)),
+				)
+			}
+		}
+	})
+}
+
+// extraHttpHeaderNames returns the names of headers, for the logs, which
+// leave the values out: they may hold credentials, such as an Authorization
+// header's.
+func extraHttpHeaderNames(headers []ExtraHttpHeader) string {
+	names := make([]string, len(headers))
+	for i, header := range headers {
+		names[i] = header.Name
+	}
+
+	return strings.Join(names, ", ")
+}
+
+// statusLine returns an HTTP status code with its reason phrase: the standard
+// one, else the one the server sent, else none. HTTP/2 carries no reason
+// phrase, so Chromium reports an empty one over it.
+func statusLine(code int64, reported string) string {
+	text := http.StatusText(int(code))
+	if text == "" {
+		text = strings.TrimSpace(reported)
+	}
+
+	if text == "" {
+		return strconv.FormatInt(code, 10)
+	}
+
+	return fmt.Sprintf("%d: %s", code, text)
+}
+
+// isMainPageResponse reports whether ev answers a document of the main frame
+// of the tab targetID names, whose frame ID is the target ID. That is the page
+// the route asked for, after any redirect, whatever form its URL takes, or a
+// page the main frame's scripts navigate to. An iframe's document has a frame
+// of its own, and is a resource. A redirect fires no response, only its
+// target does.
+func isMainPageResponse(ev *network.EventResponseReceived, targetID target.ID) bool {
+	return ev.Type == network.ResourceTypeDocument && targetID != "" && ev.FrameID == cdp.FrameID(targetID)
+}
+
+// isAllowedFileSubResource reports whether a file:// sub-resource URL is
+// within at least one prefix. An empty prefix list rejects every
+// file:// URL so routes that never populate the list (for example
+// /forms/chromium/convert/url) default-deny reads from /tmp/, blocking
+// cross-request enumeration.
+func isAllowedFileSubResource(rawURL string, allowedFilePrefixes []string) bool {
+	if len(allowedFilePrefixes) == 0 {
+		return false
+	}
+	for _, prefix := range allowedFilePrefixes {
+		if strings.HasPrefix(rawURL, "file://"+prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+func shouldCheckResourceHttpStatusCode(rawURL string, ignoreDomains []string) bool {
+	host := hostnameFromURL(rawURL)
+
+	if len(ignoreDomains) > 0 && matchesAnyDomain(host, ignoreDomains) {
+		return false
+	}
+
+	return true
+}
+
+func hostnameFromURL(rawURL string) string {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return ""
+	}
+	return strings.ToLower(u.Hostname())
+}
+
+func normalizeDomains(domains []string) []string {
+	normalized := make([]string, 0, len(domains))
+
+	for _, domain := range domains {
+		d := normalizeDomain(domain)
+		if d == "" {
+			continue
+		}
+		normalized = append(normalized, d)
+	}
+
+	return normalized
+}
+
+func normalizeDomain(domain string) string {
+	d := strings.ToLower(strings.TrimSpace(domain))
+	if d == "" {
+		return ""
+	}
+
+	// Accept "example.com", "*.example.com", ".example.com", "https://example.com/path",
+	// or "example.com:443".
+	if strings.Contains(d, "://") || strings.HasPrefix(d, "//") {
+		u, err := url.Parse(d)
+		if err == nil && u.Hostname() != "" {
+			d = strings.ToLower(u.Hostname())
+		}
+	} else {
+		// Make it parseable as a URL to extract the hostname and drop any port/path.
+		u, err := url.Parse("https://" + d)
+		if err == nil && u.Hostname() != "" {
+			d = strings.ToLower(u.Hostname())
+		}
+	}
+
+	d = strings.TrimPrefix(d, "*.")
+	d = strings.TrimPrefix(d, ".")
+
+	return d
+}
+
+func matchesAnyDomain(host string, domains []string) bool {
+	if host == "" || len(domains) == 0 {
+		return false
+	}
+
+	for _, domain := range domains {
+		if host == domain || strings.HasSuffix(host, "."+domain) {
+			return true
+		}
+	}
+
+	return false
+}
+
+type eventLoadingFailedOptions struct {
+	failures              *conversionFailures
+	cancelOnMainPageError context.CancelFunc
+}
+
+// listenForEventLoadingFailed listens for an event indicating that the main
+// page or one or more resources failed to load.
+// See:
+// https://github.com/gotenberg/gotenberg/issues/913.
+// https://github.com/gotenberg/gotenberg/issues/959.
+// https://github.com/gotenberg/gotenberg/issues/1021.
+func listenForEventLoadingFailed(ctx context.Context, logger *slog.Logger, options eventLoadingFailedOptions) {
+	chromedp.ListenTarget(ctx, func(ev any) {
+		if ev, ok := ev.(*network.EventLoadingFailed); ok {
+			logger.DebugContext(ctx, fmt.Sprintf("event EventLoadingFailed fired: %+v", ev.ErrorText))
+
+			// We are looking for common errors.
+			// TODO: sufficient?
+			knownErrors := []string{
+				"net::ERR_CONNECTION_CLOSED",
+				"net::ERR_CONNECTION_RESET",
+				"net::ERR_CONNECTION_REFUSED",
+				"net::ERR_CONNECTION_ABORTED",
+				"net::ERR_CONNECTION_FAILED",
+				// What a pinning proxy CONNECT that cannot reach its target reports.
+				"net::ERR_TUNNEL_CONNECTION_FAILED",
+				"net::ERR_NAME_NOT_RESOLVED",
+				"net::ERR_INTERNET_DISCONNECTED",
+				"net::ERR_ADDRESS_UNREACHABLE",
+				"net::ERR_BLOCKED_BY_CLIENT",
+				"net::ERR_BLOCKED_BY_RESPONSE",
+				"net::ERR_FILE_NOT_FOUND",
+				"net::ERR_HTTP2_PROTOCOL_ERROR",
+			}
+			if !slices.Contains(knownErrors, ev.ErrorText) {
+				logger.DebugContext(ctx, fmt.Sprintf("skip EventLoadingFailed: '%s' is not part of %+v", ev.ErrorText, knownErrors))
+				return
+			}
+
+			if ev.Type == network.ResourceTypeDocument {
+				// Supposition: except iframe, an event loading failed with a
+				// resource type Document is about the main page.
+				logger.DebugContext(ctx, "event EventLoadingFailed fired for main page")
+
+				options.failures.failMainPageLoading(fmt.Errorf("%s", ev.ErrorText))
+
+				// Cancel the task context so that any in-flight wait
+				// operations abort immediately.
+				// See https://github.com/gotenberg/gotenberg/issues/1492.
+				if options.cancelOnMainPageError != nil {
+					options.cancelOnMainPageError()
+				}
+
+				return
+			}
+
+			logger.DebugContext(ctx, "event EventLoadingFailed fired for a resource")
+
+			options.failures.failResourceLoading(fmt.Errorf("resource %s: %s", ev.Type, ev.ErrorText))
+		}
+	})
+}
+
+// listenForEventExceptionThrown listens for exceptions in the console and
+// records them in failures.
+// See https://github.com/gotenberg/gotenberg/issues/262.
+func listenForEventExceptionThrown(ctx context.Context, logger *slog.Logger, failures *conversionFailures) {
+	chromedp.ListenTarget(ctx, func(ev any) {
+		if ev, ok := ev.(*runtime.EventExceptionThrown); ok {
+			logger.DebugContext(ctx, fmt.Sprintf("event EventExceptionThrown fired: %+v", ev.ExceptionDetails))
+
+			failures.addConsoleException(fmt.Errorf("\n%+v", ev.ExceptionDetails))
+		}
+	})
+}
+
+// consoleMessageTypes lists the console message types a client may pass in
+// [Options.FailOnConsoleMessageTypes]. They are the Runtime.consoleAPICalled
+// types for the console methods a page uses to report problems or progress.
+var consoleMessageTypes = []string{
+	string(runtime.APITypeLog),
+	string(runtime.APITypeDebug),
+	string(runtime.APITypeInfo),
+	string(runtime.APITypeWarning),
+	string(runtime.APITypeError),
+	string(runtime.APITypeAssert),
+}
+
+// Caps on the console messages a conversion records, so that a page logging
+// in a loop cannot grow the error response without bound.
+const (
+	maxConsoleMessages      = 50
+	maxConsoleMessageLength = 512
+)
+
+type eventConsoleAPICalledOptions struct {
+	types    []string
+	failures *conversionFailures
+}
+
+// listenForEventConsoleAPICalled listens for console calls from the page and
+// records those whose type is in the given types. It only covers calls made
+// by page scripts: Chromium's own messages, like failed resource loads, have
+// dedicated options.
+// See https://github.com/gotenberg/gotenberg/issues/1667.
+func listenForEventConsoleAPICalled(ctx context.Context, logger *slog.Logger, options eventConsoleAPICalledOptions) {
+	chromedp.ListenTarget(ctx, func(ev any) {
+		call, ok := ev.(*runtime.EventConsoleAPICalled)
+		if !ok || !slices.Contains(options.types, string(call.Type)) {
+			return
+		}
+
+		logger.DebugContext(ctx, fmt.Sprintf("event EventConsoleAPICalled fired: %s", call.Type))
+
+		options.failures.addConsoleMessage(fmt.Sprintf("[%s] %s", call.Type, formatConsoleMessage(call.Args)))
+	})
+}
+
+// formatConsoleMessage renders the arguments of a console call the way the
+// DevTools console does for primitives: strings unquoted, other values as
+// their description. The result is truncated to [maxConsoleMessageLength]
+// bytes.
+func formatConsoleMessage(args []*runtime.RemoteObject) string {
+	parts := make([]string, 0, len(args))
+
+	for _, arg := range args {
+		if arg == nil {
+			continue
+		}
+
+		parts = append(parts, formatConsoleArg(arg))
+	}
+
+	message := strings.Join(parts, " ")
+	if len(message) <= maxConsoleMessageLength {
+		return message
+	}
+
+	// Cut on a rune boundary so that the response stays valid UTF-8.
+	return strings.ToValidUTF8(message[:maxConsoleMessageLength], "") + "..."
+}
+
+func formatConsoleArg(arg *runtime.RemoteObject) string {
+	if arg.Type == runtime.TypeString && len(arg.Value) != 0 {
+		var value string
+		if err := json.Unmarshal(arg.Value, &value); err == nil {
+			return value
+		}
+	}
+
+	switch {
+	case len(arg.Value) != 0:
+		return string(arg.Value)
+	case arg.UnserializableValue != "":
+		return string(arg.UnserializableValue)
+	case arg.Description != "":
+		return arg.Description
+	default:
+		return string(arg.Type)
+	}
+}
+
+type eventTargetCrashedOptions struct {
+	failures *conversionFailures
+	cancel   context.CancelFunc
+}
+
+// listenForEventTargetCrashed listens for the Inspector.targetCrashed event,
+// which Chromium sends when the renderer serving the conversion's tab
+// crashes. chromedp enables the Inspector domain on every target but does
+// not handle this event: left alone, the in-flight CDP command never
+// receives a response and the conversion blocks until the request deadline.
+// Record the crash and cancel the task context so the conversion fails fast
+// instead.
+// See https://github.com/gotenberg/gotenberg/issues/1640.
+func listenForEventTargetCrashed(ctx context.Context, logger *slog.Logger, options eventTargetCrashedOptions) {
+	chromedp.ListenTarget(ctx, func(ev any) {
+		if _, ok := ev.(*inspector.EventTargetCrashed); ok {
+			logger.DebugContext(ctx, "event EventTargetCrashed fired")
+
+			options.failures.crash()
+
+			// Cancel the task context so the in-flight CDP command aborts
+			// immediately instead of waiting for a response the crashed
+			// renderer can never send.
+			options.cancel()
+		}
+	})
+}
+
+// waitForEventDomContentEventFired registers a listener for the
+// DomContentEventFired event and returns a waiter that blocks until the
+// event fires or ctx is done. The listener registers at call time, not
+// inside the waiter, so callers must invoke this before triggering the
+// action that may emit the event. Registering inside the waiter would
+// open a race: for fast loads (typically file:// pages with no external
+// sub-resources), the event can fire before the waiter goroutine starts
+// and the listener never sees a record.
+func waitForEventDomContentEventFired(ctx context.Context, logger *slog.Logger) func() error {
+	ch := make(chan struct{})
+	cctx, cancel := context.WithCancel(ctx)
+	chromedp.ListenTarget(cctx, func(ev any) {
+		if _, ok := ev.(*page.EventDomContentEventFired); ok {
+			cancel()
+			close(ch)
+		}
+	})
+	return func() error {
+		select {
+		case <-ch:
+			logger.DebugContext(ctx, "event DomContentEventFired fired")
+			return nil
+		case <-ctx.Done():
+			return fmt.Errorf("wait for event DomContentEventFired: %w", ctx.Err())
+		}
+	}
+}
+
+// waitForEventLoadEventFired registers a listener for the LoadEventFired
+// event and returns a waiter that blocks until the event fires or ctx is
+// done. See [waitForEventDomContentEventFired] for the rationale on
+// registering at call time rather than inside the waiter.
+func waitForEventLoadEventFired(ctx context.Context, logger *slog.Logger) func() error {
+	ch := make(chan struct{})
+	cctx, cancel := context.WithCancel(ctx)
+	chromedp.ListenTarget(cctx, func(ev any) {
+		if _, ok := ev.(*page.EventLoadEventFired); ok {
+			cancel()
+			close(ch)
+		}
+	})
+	return func() error {
+		select {
+		case <-ch:
+			logger.DebugContext(ctx, "event LoadEventFired fired")
+			return nil
+		case <-ctx.Done():
+			return fmt.Errorf("wait for event LoadEventFired: %w", ctx.Err())
+		}
+	}
+}
+
+// waitForEventNetworkIdle registers a listener for the networkIdle
+// lifecycle event and returns a waiter that blocks until the event fires
+// or ctx is done. See [waitForEventDomContentEventFired] for the
+// rationale on registering at call time rather than inside the waiter.
+func waitForEventNetworkIdle(ctx context.Context, logger *slog.Logger) func() error {
+	ch := make(chan struct{})
+	cctx, cancel := context.WithCancel(ctx)
+	chromedp.ListenTarget(cctx, func(ev any) {
+		if e, ok := ev.(*page.EventLifecycleEvent); ok && e.Name == "networkIdle" {
+			cancel()
+			close(ch)
+		}
+	})
+	return func() error {
+		select {
+		case <-ch:
+			logger.DebugContext(ctx, "event networkIdle fired")
+			return nil
+		case <-ctx.Done():
+			return fmt.Errorf("wait for event networkIdle: %w", ctx.Err())
+		}
+	}
+}
+
+// waitForEventNetworkAlmostIdle registers a listener for the
+// networkAlmostIdle lifecycle event and returns a waiter that blocks until the
+// event fires or ctx is done. Chromium names it networkAlmostIdle, while
+// Puppeteer's option for it is networkidle2. See
+// [waitForEventDomContentEventFired] for the rationale on registering at call
+// time rather than inside the waiter.
+func waitForEventNetworkAlmostIdle(ctx context.Context, logger *slog.Logger) func() error {
+	ch := make(chan struct{})
+	cctx, cancel := context.WithCancel(ctx)
+	chromedp.ListenTarget(cctx, func(ev any) {
+		if e, ok := ev.(*page.EventLifecycleEvent); ok && e.Name == "networkAlmostIdle" {
+			cancel()
+			close(ch)
+		}
+	})
+	return func() error {
+		select {
+		case <-ch:
+			logger.DebugContext(ctx, "event networkAlmostIdle fired")
+			return nil
+		case <-ctx.Done():
+			return fmt.Errorf("wait for event networkAlmostIdle: %w", ctx.Err())
+		}
+	}
+}
+
+// waitForEventLoadingFinished registers a listener for the
+// LoadingFinished event and returns a waiter that blocks until the event
+// fires or ctx is done. See [waitForEventDomContentEventFired] for the
+// rationale on registering at call time rather than inside the waiter.
+func waitForEventLoadingFinished(ctx context.Context, logger *slog.Logger) func() error {
+	ch := make(chan struct{})
+	cctx, cancel := context.WithCancel(ctx)
+	chromedp.ListenTarget(cctx, func(ev any) {
+		if _, ok := ev.(*network.EventLoadingFinished); ok {
+			cancel()
+			close(ch)
+		}
+	})
+	return func() error {
+		select {
+		case <-ch:
+			logger.DebugContext(ctx, "event LoadingFinished fired")
+			return nil
+		case <-ctx.Done():
+			return fmt.Errorf("wait for event LoadingFinished: %w", ctx.Err())
+		}
+	}
+}
+
+// runBatch runs all functions simultaneously and waits until all of them are
+// completed or an error is encountered.
+func runBatch(ctx context.Context, fn ...func() error) error {
+	eg, _ := errgroup.WithContext(ctx)
+	for _, f := range fn {
+		eg.Go(f)
+	}
+
+	return eg.Wait()
+}

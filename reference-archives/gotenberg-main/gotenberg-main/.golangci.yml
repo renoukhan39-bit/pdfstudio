@@ -1,0 +1,74 @@
+version: "2"
+run:
+  issues-exit-code: 1
+  tests: false
+linters:
+  default: none
+  enable:
+    - asasalint
+    - asciicheck
+    - bidichk
+    - bodyclose
+    - copyloopvar
+    - decorder
+    - dogsled
+    - dupl
+    - dupword
+    - durationcheck
+    - errcheck
+    - errname
+    - exhaustive
+    - gosec
+    - govet
+    - importas
+    - ineffassign
+    - misspell
+    - prealloc
+    - staticcheck
+    - testableexamples
+    - tparallel
+    - unconvert
+    - unused
+    - sloglint
+    - usetesting
+    - gocritic
+    - godoclint
+    - wastedassign
+    - whitespace
+  settings:
+    godoclint:
+      default: basic
+      enable:
+        - require-doc
+        - require-pkg-doc
+        - start-with-name
+      options:
+        require-doc:
+          ignore-unexported: true
+  exclusions:
+    generated: lax
+    rules:
+      # A verbatim copy of otelhttp's generated internal package.
+      - path: pkg/gotenberg/semconv/
+        linters:
+          - godoclint
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+formatters:
+  enable:
+    - gci
+    - gofmt
+    - gofumpt
+    - goimports
+  settings:
+    gci:
+      sections:
+        - standard
+        - default
+        - prefix(github.com/gotenberg/gotenberg/v9)
+      custom-order: true
+  exclusions:
+    generated: lax

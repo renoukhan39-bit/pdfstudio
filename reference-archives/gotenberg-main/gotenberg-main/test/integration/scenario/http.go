@@ -1,0 +1,94 @@
+package scenario
+
+import (
+	"bytes"
+	"fmt"
+	"io"
+	"mime/multipart"
+	"net/http"
+	"os"
+	"path/filepath"
+	"time"
+)
+
+// httpClient sends the requests to Gotenberg. Its timeout ends a request that
+// hangs well after --api-timeout (30s by default) would, allowing for a cold
+// engine start and a synchronous webhook delivery, instead of holding the run
+// until the go test timeout.
+var httpClient = &http.Client{Timeout: 2 * time.Minute}
+
+func doRequest(method, url string, headers map[string]string, body io.Reader) (*http.Response, error) {
+	req, err := http.NewRequest(method, url, body)
+	if err != nil {
+		return nil, fmt.Errorf("create a request: %w", err)
+	}
+
+	for header, value := range headers {
+		req.Header.Set(header, value)
+	}
+
+	// #nosec
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("send a request: %w", err)
+	}
+
+	return resp, nil
+}
+
+func doFormDataRequest(method, url string, fields map[string][]string, files map[string][]string, headers map[string]string) (*http.Response, error) {
+	var b bytes.Buffer
+	writer := multipart.NewWriter(&b)
+
+	for name, values := range fields {
+		for _, value := range values {
+			err := writer.WriteField(name, value)
+			if err != nil {
+				return nil, fmt.Errorf("write field %q: %w", name, err)
+			}
+		}
+	}
+
+	for name, paths := range files {
+		for _, path := range paths {
+			part, err := writer.CreateFormFile(name, filepath.Base(path))
+			if err != nil {
+				return nil, fmt.Errorf("create form file %q: %w", filepath.Base(path), err)
+			}
+
+			reader, err := os.Open(path)
+			if err != nil {
+				return nil, fmt.Errorf("open file %q: %w", path, err)
+			}
+			defer reader.Close()
+
+			_, err = io.Copy(part, reader)
+			if err != nil {
+				return nil, fmt.Errorf("copy file %q: %w", path, err)
+			}
+		}
+	}
+
+	err := writer.Close()
+	if err != nil {
+		return nil, fmt.Errorf("close writer: %w", err)
+	}
+
+	req, err := http.NewRequest(method, url, &b)
+	if err != nil {
+		return nil, fmt.Errorf("create a request: %w", err)
+	}
+
+	for header, value := range headers {
+		req.Header.Set(header, value)
+	}
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+
+	// #nosec
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("send a request: %w", err)
+	}
+
+	return resp, nil
+}

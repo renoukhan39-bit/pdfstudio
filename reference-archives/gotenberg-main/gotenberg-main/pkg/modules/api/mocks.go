@@ -1,0 +1,168 @@
+package api
+
+import (
+	"context"
+	"log/slog"
+	"time"
+
+	"github.com/alexliesenfeld/health"
+	"github.com/labstack/echo/v5"
+
+	"github.com/gotenberg/gotenberg/v9/pkg/gotenberg"
+)
+
+// ContextMock is a helper for tests.
+//
+//	ctx := &api.ContextMock{Context: &api.Context{}}
+type ContextMock struct {
+	*Context
+}
+
+// SetDirPath sets the context's working directory path.
+//
+//	ctx := &api.ContextMock{Context: &api.Context{}}
+//	ctx.SetDirPath("/foo")
+func (ctx *ContextMock) SetDirPath(path string) {
+	ctx.dirPath = path
+}
+
+// DirPath returns the context's working directory path.
+//
+//	ctx := &api.ContextMock{Context: &api.Context{}}
+//	ctx.SetDirPath("/foo")
+//	dirPath := ctx.DirPath()
+func (ctx *ContextMock) DirPath() string {
+	return ctx.dirPath
+}
+
+// SetValues sets the values.
+//
+//	ctx := &api.ContextMock{Context: &api.Context{}}
+//	ctx.SetValues(map[string][]string{
+//	  "url": {
+//	    "foo",
+//	  },
+//	})
+func (ctx *ContextMock) SetValues(values map[string][]string) {
+	ctx.values = values
+}
+
+// SetFiles sets the files.
+//
+//	ctx := &api.ContextMock{Context: &api.Context{}}
+//	ctx.SetFiles(map[string]string{
+//	  "foo": "/foo",
+//	})
+func (ctx *ContextMock) SetFiles(files map[string]string) {
+	ctx.files = files
+}
+
+// SetFileFields sets the multipart fields the files arrived under.
+//
+//	ctx := &api.ContextMock{Context: &api.Context{}}
+//	ctx.SetFileFields("files", "watermark")
+func (ctx *ContextMock) SetFileFields(fields ...string) {
+	ctx.fileFields = make(map[string]bool, len(fields))
+	for _, field := range fields {
+		ctx.fileFields[field] = true
+	}
+}
+
+// SetCancelled sets if the context is canceled or not.
+//
+//	ctx := &api.ContextMock{Context: &api.Context{}}
+//	ctx.SetCancelled(true)
+func (ctx *ContextMock) SetCancelled(cancelled bool) {
+	ctx.cancelled = cancelled
+}
+
+// OutputPaths returns the registered output paths.
+//
+//	ctx := &api.ContextMock{Context: &api.Context{}}
+//	outputPaths := ctx.OutputPaths()
+func (ctx *ContextMock) OutputPaths() []string {
+	return ctx.outputPaths
+}
+
+// SetTimeout sets the time limit of the request.
+//
+//	ctx := &api.ContextMock{Context: &api.Context{}}
+//	ctx.SetTimeout(30 * time.Second)
+func (ctx *ContextMock) SetTimeout(timeout time.Duration) {
+	ctx.timeout = timeout
+}
+
+// SetLogger sets the logger.
+//
+//	ctx := &api.ContextMock{Context: &api.Context{}}
+//	ctx.SetLogger(slog.Default())
+func (ctx *ContextMock) SetLogger(logger *slog.Logger) {
+	ctx.logger = logger
+}
+
+// SetEchoContext sets the [echo.Context].
+//
+//	ctx := &api.ContextMock{Context: &api.Context{}}
+//	ctx.setEchoContext(c)
+func (ctx *ContextMock) SetEchoContext(c *echo.Context) {
+	ctx.echoCtx = c
+}
+
+// SetMkdirAll sets the [gotenberg.MkdirAll].
+//
+//	ctx := &api.ContextMock{Context: &api.Context{}}
+//	ctx.SetMkdirAll(mkdirAll)
+func (ctx *ContextMock) SetMkdirAll(mkdirAll gotenberg.MkdirAll) {
+	ctx.mkdirAll = mkdirAll
+}
+
+// SetPathRename sets the [gotenberg.PathRename].
+//
+//	ctx := &api.ContextMock{Context: &api.Context{}}
+//	ctx.setPathRename(rename)
+func (ctx *ContextMock) SetPathRename(rename gotenberg.PathRename) {
+	ctx.pathRename = rename
+}
+
+// RouterMock is a mock for the [Router] interface.
+type RouterMock struct {
+	RoutesMock func() ([]Route, error)
+}
+
+// Routes calls RoutesMock.
+func (router *RouterMock) Routes() ([]Route, error) {
+	return router.RoutesMock()
+}
+
+// MiddlewareProviderMock is a mock for the [MiddlewareProvider] interface.
+type MiddlewareProviderMock struct {
+	MiddlewaresMock func() ([]Middleware, error)
+}
+
+// Middlewares calls MiddlewaresMock.
+func (provider *MiddlewareProviderMock) Middlewares() ([]Middleware, error) {
+	return provider.MiddlewaresMock()
+}
+
+// HealthCheckerMock is a mock for the [HealthChecker] interface.
+type HealthCheckerMock struct {
+	ChecksMock func() ([]health.CheckerOption, error)
+	ReadyMock  func(ctx context.Context) error
+}
+
+// Checks calls ChecksMock.
+func (mod *HealthCheckerMock) Checks() ([]health.CheckerOption, error) {
+	return mod.ChecksMock()
+}
+
+// Ready calls ReadyMock.
+func (mod *HealthCheckerMock) Ready(ctx context.Context) error {
+	return mod.ReadyMock(ctx)
+}
+
+// Interface guards.
+var (
+	_ Router             = (*RouterMock)(nil)
+	_ MiddlewareProvider = (*MiddlewareProviderMock)(nil)
+	_ HealthChecker      = (*HealthCheckerMock)(nil)
+)

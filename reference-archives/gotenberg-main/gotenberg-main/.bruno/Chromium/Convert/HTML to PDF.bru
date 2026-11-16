@@ -1,0 +1,58 @@
+meta {
+  name: HTML to PDF
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/forms/chromium/convert/html
+  body: multipartForm
+  auth: none
+}
+
+body:multipart-form {
+  files: @file(../test/integration/testdata/page-1-html/index.html)
+  ~archives: @file(../test/integration/testdata/pages-3-html.zip)
+  ~landscape: false
+  ~printBackground: false
+  ~scale: 1.0
+  ~singlePage: false
+  ~paperSize: A4
+  ~paperWidth: 8.5
+  ~paperHeight: 11
+  ~marginTop: 0.39
+  ~marginBottom: 0.39
+  ~marginLeft: 0.39
+  ~marginRight: 0.39
+  ~nativePages: 1-2
+  ~preferCssPageSize: false
+  ~nativeBookmarks: false
+  ~nativeTaggedPdf: false
+  ~skipNetworkIdleEvent: false
+  ~skipNetworkAlmostIdleEvent: false
+  ~failOnHttpStatusCodes: [499,599]
+  ~failOnResourceHttpStatusCodes: []
+  ~ignoreResourceHttpStatusDomains: []
+  ~failOnResourceLoadingFailed: false
+  ~failOnConsoleExceptions: false
+  ~failOnConsoleMessageTypes: []
+  ~waitDelay: 0s
+  ~waitForWindowStatus:
+  ~waitForExpression:
+  ~waitForSelector:
+  ~cookies: [{"name":"my_cookie","value":"my_value","domain":"example.com"}]
+  ~userAgent:
+  ~extraHttpHeaders: {"X-Custom-Header":"value"}
+  ~emulatedMediaType: print
+  ~emulatedMediaFeatures: {"prefers-color-scheme":"dark"}
+  ~omitBackground: false
+  ~stages: [{"op":"set-metadata","title":"My title"},{"op":"remediate","profile":"PDF/A-2b"},{"op":"render","pages":"1"}]
+}
+
+headers {
+  ~Gotenberg-Output-Filename: my-file
+  ~Gotenberg-Webhook-Url: http://localhost:8080/webhook
+  ~Gotenberg-Webhook-Events-Url: http://localhost:8080/webhook/events
+  ~Gotenberg-Webhook-Method: POST
+  ~Gotenberg-Webhook-Extra-Http-Headers: {"X-Custom":"value"}
+}

@@ -1,0 +1,1079 @@
+package api
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"log/slog"
+	"maps"
+	"mime"
+	"mime/multipart"
+	"net"
+	"net/http"
+	"net/url"
+	"os"
+	"path"
+	"path/filepath"
+	"slices"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"time"
+	"unicode/utf8"
+
+	"github.com/google/uuid"
+	"github.com/hashicorp/go-retryablehttp"
+	"github.com/labstack/echo/v5"
+	"github.com/mholt/archives"
+	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
+	"go.opentelemetry.io/otel/trace"
+	"golang.org/x/sync/errgroup"
+	"golang.org/x/text/unicode/norm"
+
+	"github.com/gotenberg/gotenberg/v9/pkg/gotenberg"
+)
+
+var (
+	// ErrContextAlreadyClosed happens when the context has been canceled.
+	ErrContextAlreadyClosed = errors.New("context already closed")
+
+	// ErrOutOfBoundsOutputPath happens when an output path is not within
+	// context's working directory. It enforces having all the files in the
+	// same directory.
+	ErrOutOfBoundsOutputPath = errors.New("output path is not within context's working directory")
+)
+
+// Context is the request context for a "multipart/form-data" request.
+type Context struct {
+	dirPath string
+	values  map[string][]string
+	files   map[string]string
+	// diskToOriginal maps a disk path to the filename it answers under.
+	// Request parsing fills it before the handler runs; afterwards, handlers
+	// register outputs from concurrent goroutines, so every access after
+	// parsing goes through diskToOriginalMu.
+	diskToOriginal   map[string]string
+	diskToOriginalMu sync.RWMutex
+	outputPaths      []string
+	outputHeaders    map[string]string
+	cancelled        bool
+
+	// fileOrder records the order files were received in, keyed by disk path.
+	// It breaks ties when two uploads share an original filename, so that
+	// de-duplicated files keep their upload order instead of being ordered by
+	// the suffix uniqueFilename added.
+	fileOrder map[string]int
+
+	// fileBase maps a disk path to the original filename as received, before
+	// de-duplication. Sorting on it keeps a de-duplicated file next to its
+	// twin rather than wherever its numbered name would land.
+	fileBase map[string]string
+
+	// fields records the value form fields the route reads, and fileFields
+	// the multipart fields files arrived under, so that
+	// [FormData.RejectUnknown] tells the fields the route does not know.
+	fields     *formFields
+	fileFields map[string]bool
+
+	// timeout is the time limit of the request, as --api-timeout (env
+	// API_TIMEOUT) sets it. It is zero when unknown.
+	timeout time.Duration
+
+	// outputFilename is the sanitized Gotenberg-Output-Filename header,
+	// snapshotted while the [echo.Context] is still live. Echo returns that
+	// context to a pool as soon as the handler returns, and an asynchronous
+	// conversion outlives it, so reading the header from the pooled store later
+	// yields whichever request happens to own it by then.
+	outputFilename string
+
+	logger     *slog.Logger
+	echoCtx    *echo.Context
+	mkdirAll   gotenberg.MkdirAll
+	pathRename gotenberg.PathRename
+	context.Context
+}
+
+type trackingReader struct {
+	R            io.Reader
+	AddReadBytes func(n int64) error
+}
+
+func (t *trackingReader) Read(p []byte) (int, error) {
+	n, err := t.R.Read(p)
+	if n > 0 {
+		errAddRead := t.AddReadBytes(int64(n))
+		if errAddRead != nil {
+			return n, fmt.Errorf("add read bytes: %w", errAddRead)
+		}
+	}
+	if err != nil {
+		// It's a common practice in Go to return io.EOF unwrapped to signal
+		// the end of a data stream. Wrapping it can lead to unexpected
+		// behavior in standard library functions.
+		return n, err
+	}
+	return n, nil
+}
+
+// errTooManyDownloadFromEntries is returned by [decodeDownloadFrom] when the
+// array holds more entries than the configured maximum.
+var errTooManyDownloadFromEntries = errors.New("too many downloadFrom entries")
+
+// decodeDownloadFrom decodes the downloadFrom form field, refusing to
+// accumulate more than maxEntries. A maxEntries of 0 means no limit.
+//
+// It decodes element by element rather than calling [json.Unmarshal] on the
+// whole value. A compact array such as "[{},{},{}]" costs three bytes per
+// entry on the wire and expands to roughly seventy times that once
+// unmarshalled, so counting the entries afterwards is too late to bound the
+// allocation. Streaming keeps the cost proportional to maxEntries no matter
+// how long the array is.
+func decodeDownloadFrom(raw string, maxEntries int) ([]downloadFrom, error) {
+	dec := json.NewDecoder(strings.NewReader(raw))
+
+	token, err := dec.Token()
+	if err != nil {
+		return nil, err
+	}
+	if delim, ok := token.(json.Delim); !ok || delim != '[' {
+		return nil, fmt.Errorf("expected a JSON array, got '%v'", token)
+	}
+
+	var dls []downloadFrom
+	for dec.More() {
+		if maxEntries > 0 && len(dls) >= maxEntries {
+			return nil, errTooManyDownloadFromEntries
+		}
+
+		var dl downloadFrom
+		err = dec.Decode(&dl)
+		if err != nil {
+			return nil, err
+		}
+
+		dls = append(dls, dl)
+	}
+
+	return dls, nil
+}
+
+type downloadFrom struct {
+	// Url is the URL to download a file from.
+	Url string `json:"url"`
+
+	// ExtraHttpHeaders are the HTTP headers to send alongside.
+	ExtraHttpHeaders map[string]string `json:"extraHttpHeaders"`
+
+	// Filename names the downloaded file. It wins over the filename the
+	// response carries. Optional.
+	Filename string `json:"filename"`
+}
+
+// bodyBudget counts the bytes a request reads against --api-body-limit (env
+// API_BODY_LIMIT): form fields (keys, values, files) and files downloaded
+// remotely ("download from" feature). A limit of 0 means no limit.
+type bodyBudget struct {
+	limit int64
+	read  atomic.Int64
+}
+
+// add counts n more bytes, and returns an error once over the limit.
+func (b *bodyBudget) add(n int64) error {
+	total := b.read.Add(n)
+	if b.limit != 0 && total > b.limit {
+		return b.exceeded()
+	}
+	return nil
+}
+
+// exceeded returns the error of a request over the limit.
+func (b *bodyBudget) exceeded() error {
+	return WrapError(
+		fmt.Errorf("body limit reached (> %d)", b.limit),
+		NewSentinelHttpError(http.StatusRequestEntityTooLarge, "The request body exceeds the configured size limit. Increase it with --api-body-limit, or send a smaller request."),
+	)
+}
+
+// newContext returns a [Context] by parsing a "multipart/form-data" request.
+func newContext(echoCtx *echo.Context, logger *slog.Logger, fs *gotenberg.FileSystem, timeout time.Duration, bodyLimit int64, downloadFromCfg downloadFromConfig, archiveCfg archiveConfig) (*Context, context.CancelFunc, error) {
+	processCtx, processCancel := context.WithTimeout(echoCtx.Request().Context(), timeout)
+	budget := &bodyBudget{limit: bodyLimit}
+
+	// Snapshot now, while echoCtx still belongs to this request.
+	outputFilename, _ := echoCtx.Get("outputFilename").(string)
+
+	ctx := &Context{
+		outputPaths:    make([]string, 0),
+		cancelled:      false,
+		outputFilename: outputFilename,
+		timeout:        timeout,
+		logger:         logger,
+		echoCtx:        echoCtx,
+		mkdirAll:       new(gotenberg.OsMkdirAll),
+		pathRename:     new(gotenberg.OsPathRename),
+		Context:        processCtx,
+	}
+
+	// A custom cancel function which removes the context's working directory
+	// when called.
+	cancel := func() context.CancelFunc {
+		return func() {
+			if ctx.cancelled {
+				return
+			}
+
+			processCancel()
+
+			if ctx.dirPath == "" {
+				return
+			}
+
+			err := os.RemoveAll(ctx.dirPath)
+			if err != nil {
+				ctx.logger.ErrorContext(context.Background(), fmt.Sprintf("remove context's working directory: %s", err))
+
+				return
+			}
+
+			ctx.logger.DebugContext(context.Background(), fmt.Sprintf("'%s' context's working directory removed", ctx.dirPath))
+			ctx.cancelled = true
+		}
+	}()
+
+	form, err := parseMultipartForm(echoCtx, budget)
+	if err != nil {
+		return nil, cancel, err
+	}
+	defer func() {
+		err := form.RemoveAll()
+		if err != nil {
+			logger.ErrorContext(context.Background(), fmt.Sprintf("remove multipart temporary files: %s", err))
+		}
+	}()
+
+	dirPath, err := fs.MkdirAll()
+	if err != nil {
+		return nil, cancel, fmt.Errorf("create working directory: %w", err)
+	}
+
+	ctx.dirPath = dirPath
+	ctx.values = form.Value
+	ctx.files = make(map[string]string)
+	ctx.diskToOriginal = make(map[string]string)
+	ctx.fields = newFormFields()
+	ctx.fileFields = make(map[string]bool, len(form.File))
+
+	// First, try to download files listed in the "downloadFrom" form field, if
+	// any.
+	raw, ok := ctx.values[DownloadFromFormField]
+	if !downloadFromCfg.disable && ok {
+		err = ctx.downloadFrom(raw[0], downloadFromCfg, budget)
+		if err != nil {
+			return ctx, cancel, err
+		}
+	}
+
+	// Then, copy the form files, if any, and unpack the archives.
+	for field, files := range form.File {
+		ctx.fileFields[field] = true
+
+		for _, fh := range files {
+			if field == ArchivesFormField {
+				err = ctx.extractArchive(fh, archiveCfg, budget)
+				if err != nil {
+					return ctx, cancel, err
+				}
+
+				continue
+			}
+
+			err = ctx.copyToDisk(fh, budget)
+			if err != nil {
+				return ctx, cancel, fmt.Errorf("copy to disk: %w", err)
+			}
+		}
+	}
+
+	ctx.linkOriginalFilenames()
+
+	// Names only: values carry secrets, such as a document password.
+	ctx.Log().DebugContext(ctx, fmt.Sprintf("form fields: %v", slices.Sorted(maps.Keys(ctx.values))))
+	ctx.Log().DebugContext(ctx, fmt.Sprintf("form files: %+v", ctx.files))
+	ctx.Log().DebugContext(ctx, fmt.Sprintf("total bytes: %d", budget.read.Load()))
+
+	return ctx, cancel, nil
+}
+
+// parseMultipartForm parses the request body, and counts the form values
+// against budget.
+func parseMultipartForm(echoCtx *echo.Context, budget *bodyBudget) (*multipart.Form, error) {
+	// The multipart parser reads the whole request and spools file parts to
+	// disk before the budget sees a single byte, so the limit must also bound
+	// the raw body itself. Content-Length allows an early rejection, but it
+	// may be absent or lie, hence the reader.
+	if budget.limit > 0 {
+		req := echoCtx.Request()
+		if req.ContentLength > budget.limit {
+			return nil, fmt.Errorf("check content length: %w", budget.exceeded())
+		}
+		req.Body = http.MaxBytesReader(echoCtx.Response(), req.Body, budget.limit)
+	}
+
+	form, err := echoCtx.MultipartForm()
+	if err != nil {
+		var maxBytesErr *http.MaxBytesError
+		if errors.As(err, &maxBytesErr) {
+			return nil, fmt.Errorf("get multipart form: %w", budget.exceeded())
+		}
+
+		if errors.Is(err, http.ErrNotMultipart) {
+			return nil, WrapError(
+				fmt.Errorf("get multipart form: %w", err),
+				NewSentinelHttpError(http.StatusUnsupportedMediaType, "Invalid 'Content-Type' header value: want 'multipart/form-data'"),
+			)
+		}
+
+		if errors.Is(err, http.ErrMissingBoundary) {
+			return nil, WrapError(
+				fmt.Errorf("get multipart form: %w", err),
+				NewSentinelHttpError(http.StatusUnsupportedMediaType, "Invalid 'Content-Type' header value: no boundary"),
+			)
+		}
+
+		if strings.Contains(err.Error(), io.EOF.Error()) {
+			return nil, WrapError(
+				fmt.Errorf("get multipart form: %w", err),
+				NewSentinelHttpError(http.StatusBadRequest, "Malformed body: it does not match the 'Content-Type' header boundaries"),
+			)
+		}
+
+		return nil, fmt.Errorf("get multipart form: %w", err)
+	}
+
+	var formValuesSize int64
+	for key, valArray := range form.Value {
+		formValuesSize += int64(len(key))
+		for _, val := range valArray {
+			formValuesSize += int64(len(val))
+		}
+	}
+
+	err = budget.add(formValuesSize)
+	if err != nil {
+		removeErr := form.RemoveAll()
+		if removeErr != nil {
+			return nil, errors.Join(fmt.Errorf("add read bytes: %w", err), fmt.Errorf("remove multipart temporary files: %w", removeErr))
+		}
+
+		return nil, fmt.Errorf("add read bytes: %w", err)
+	}
+
+	return form, nil
+}
+
+// downloadFrom downloads the files the "downloadFrom" form field lists into
+// the working directory.
+func (ctx *Context) downloadFrom(raw string, cfg downloadFromConfig, budget *bodyBudget) error {
+	dls, err := decodeDownloadFrom(raw, cfg.maxEntries)
+	if errors.Is(err, errTooManyDownloadFromEntries) {
+		return WrapError(
+			fmt.Errorf("decode downloadFrom: %w", err),
+			NewSentinelHttpError(http.StatusBadRequest, fmt.Sprintf("Invalid form data: form field 'downloadFrom' is invalid (too many entries, the maximum is %d)", cfg.maxEntries)),
+		)
+	}
+	if err != nil {
+		return WrapError(
+			fmt.Errorf("unmarshal json: %w", err),
+			NewSentinelHttpError(http.StatusBadRequest, fmt.Sprintf(`Invalid form data: form field 'downloadFrom' is invalid (want a JSON array such as [{"url":"https://example.com/file.pdf"}]: %s)`, err)),
+		)
+	}
+
+	// Each goroutine writes to its own results slot. This goroutine merges
+	// into ctx.files and ctx.diskToOriginal after eg.Wait() to avoid
+	// concurrent map writes.
+	type downloadFromResult struct {
+		filename, path string
+	}
+	results := make([]downloadFromResult, len(dls))
+
+	// The group context cancels the remaining downloads as soon as one
+	// fails: the request fails anyway.
+	eg, groupCtx := errgroup.WithContext(ctx)
+	// Bound the number of in-flight downloads. Each entry allocates a
+	// retryable client, an outbound transport, a span, and logger state, so
+	// an unbounded array would otherwise exhaust process memory. A value of 0
+	// keeps the fan-out unbounded.
+	if cfg.maxConcurrency > 0 {
+		eg.SetLimit(cfg.maxConcurrency)
+	}
+	for i, dl := range dls {
+		eg.Go(func() error {
+			filename, path, err := ctx.downloadOne(groupCtx, i, dl, cfg, budget)
+			if err != nil {
+				return err
+			}
+
+			results[i] = downloadFromResult{filename: filename, path: path}
+
+			return nil
+		})
+	}
+
+	err = eg.Wait()
+	if err != nil {
+		return err
+	}
+
+	for _, r := range results {
+		filename := ctx.uniqueFilename(r.filename)
+		ctx.files[filename] = r.path
+		ctx.diskToOriginal[r.path] = filename
+		ctx.trackFileOrder(r.path, r.filename)
+	}
+
+	return nil
+}
+
+// downloadOne downloads the i-th "downloadFrom" entry into the working
+// directory, and returns its sanitized filename and its path on disk.
+func (ctx *Context) downloadOne(groupCtx context.Context, i int, dl downloadFrom, cfg downloadFromConfig, budget *bodyBudget) (filename, path string, err error) {
+	deadline, ok := ctx.Deadline()
+	if !ok {
+		// Should not happen, as context is created with a timeout.
+		return "", "", errors.New("context has no deadline")
+	}
+
+	if strings.TrimSpace(dl.Url) == "" {
+		return "", "", WrapError(
+			errors.New("empty download from URL"),
+			NewSentinelHttpError(http.StatusBadRequest, fmt.Sprintf("Invalid form data: form field 'downloadFrom' entry %d is invalid (URL must be set)", i)),
+		)
+	}
+
+	if dl.Filename != "" && strings.TrimSpace(SanitizeFilename(dl.Filename)) == "" {
+		return "", "", WrapError(
+			errors.New("empty download from filename"),
+			NewSentinelHttpError(http.StatusBadRequest, fmt.Sprintf("Invalid form data: form field 'downloadFrom' entry %d is invalid (filename must hold a name, such as 'file.pdf', or be omitted)", i)),
+		)
+	}
+
+	// The filters let non-HTTP schemes through, for Chromium's sake. A
+	// download only speaks HTTP.
+	err = gotenberg.RequireWebURL(dl.Url)
+	if err != nil {
+		return "", "", WrapError(
+			fmt.Errorf("check URL: %w", err),
+			NewSentinelHttpError(http.StatusBadRequest, fmt.Sprintf("Invalid form data: form field 'downloadFrom' entry %d is invalid (want an absolute URL with an http or https scheme and a host, such as https://example.com/file.pdf)", i)),
+		)
+	}
+
+	// Errors and logs name the URL without its credentials, query and
+	// fragment, which may hold a token. The client's own messages keep it
+	// whole.
+	redactedURL := gotenberg.RedactURL(dl.Url)
+
+	ipOpts := []gotenberg.DecideOption{
+		gotenberg.WithDenyPrivateIPs(cfg.denyPrivateIPs),
+		gotenberg.WithDenyPublicIPs(cfg.denyPublicIPs),
+	}
+	err = gotenberg.FilterOutboundURL(groupCtx, dl.Url, cfg.allowList, cfg.denyList, deadline, ipOpts...)
+	// A host that does not resolve reveals nothing of the filters: name it,
+	// rather than the generic 403 of a policy refusal. The answer wraps the
+	// resolver's error alone, so that its 400 is not read as a filtered URL's.
+	var unresolvable *gotenberg.UnresolvableHostError
+	if errors.As(err, &unresolvable) {
+		return "", "", WrapError(
+			fmt.Errorf("resolve host %q: %w", unresolvable.Host, unresolvable.Err),
+			NewSentinelHttpError(http.StatusBadRequest, fmt.Sprintf("Invalid form data: form field 'downloadFrom' entry %d is invalid (the host '%s' does not resolve)", i, unresolvable.Host)),
+		)
+	}
+	if err != nil {
+		return "", "", fmt.Errorf("filter URL: %w", err)
+	}
+
+	// The span of the whole download covers its attempts and the waits
+	// between them. Each attempt gets its own HTTP client span from the
+	// transport, under this one.
+	dlCtx, dlSpan := gotenberg.Tracer().Start(groupCtx, "api.download",
+		trace.WithSpanKind(trace.SpanKindInternal),
+		trace.WithAttributes(semconv.URLFull(redactedURL)),
+	)
+	defer func() {
+		_ = gotenberg.SetSpanStatus(dlSpan, err, gotenberg.ClassifyError(err))
+		dlSpan.End()
+	}()
+
+	ctx.logger.DebugContext(dlCtx, fmt.Sprintf("download file from '%s'", redactedURL))
+
+	// The request must carry dlCtx: retryablehttp.NewRequest builds on
+	// context.Background(), and its wait between attempts is a select on the
+	// request context, so a contextless request cannot be interrupted by
+	// --api-timeout (env API_TIMEOUT) or by the caller going away.
+	req, err := retryablehttp.NewRequestWithContext(dlCtx, http.MethodGet, dl.Url, nil)
+	if err != nil {
+		return "", "", fmt.Errorf("create request to '%s': %w", redactedURL, gotenberg.RedactURLError(err))
+	}
+
+	req.Header.Set("User-Agent", "Gotenberg")
+	for key, value := range dl.ExtraHttpHeaders {
+		req.Header.Set(key, value)
+	}
+
+	// Propagate correlation ID header.
+	if correlationIdHeader, ok := ctx.echoCtx.Get("correlationIdHeader").(string); ok {
+		if correlationId, ok := ctx.echoCtx.Get("correlationId").(string); ok {
+			req.Header.Set(correlationIdHeader, correlationId)
+		}
+	}
+
+	// Entries are serialized by the concurrency limit, so a late one can start
+	// after the deadline has already passed. Fail closed rather than derive a
+	// non-positive timeout, which [http.Client] reads as no deadline at all.
+	remaining := time.Until(deadline)
+	if remaining <= 0 {
+		return "", "", fmt.Errorf("download file from '%s': %w", redactedURL, context.DeadlineExceeded)
+	}
+
+	httpClient := gotenberg.NewOutboundHttpClient(remaining, cfg.allowList, cfg.denyList, cfg.enableEnvironmentProxy, ipOpts...)
+	httpClient.Transport = gotenberg.NewTracingTransport(httpClient.Transport)
+
+	client := &retryablehttp.Client{
+		HTTPClient:   httpClient,
+		RetryMax:     cfg.maxRetry,
+		RetryWaitMin: time.Duration(1) * time.Second,
+		RetryWaitMax: remaining,
+		Logger:       gotenberg.NewLeveledLogger(ctx.logger),
+		CheckRetry:   retryablehttp.DefaultRetryPolicy,
+		// Not DefaultBackoff: it hands a hostile origin control of the wait
+		// via Retry-After.
+		Backoff:      gotenberg.ClampedBackoff,
+		ErrorHandler: giveUpDownload,
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		// A redirect target is filtered inside the client, so the policy
+		// verdict surfaces here rather than from the pre-flight above. Keep it
+		// out of the response: the first hop answers a filtered URL with a
+		// generic 403, and a later hop must not describe the allow-list, the
+		// deny-list or the IP policy instead.
+		if errors.Is(err, gotenberg.ErrFiltered) {
+			return "", "", fmt.Errorf("download file from '%s': %w", redactedURL, err)
+		}
+
+		return "", "", WrapError(
+			fmt.Errorf("download file from '%s': %w", redactedURL, err),
+			NewSentinelHttpError(http.StatusBadRequest, fmt.Sprintf("Unable to download file from '%s': %s", dl.Url, downloadFailure(err))),
+		)
+	}
+	defer func() {
+		err := resp.Body.Close()
+		if err != nil {
+			ctx.logger.ErrorContext(ctx, fmt.Sprintf("close response body from '%s': %s", redactedURL, err))
+		}
+	}()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", "", WrapError(
+			fmt.Errorf("download file from '%s': got status: '%s'", redactedURL, resp.Status),
+			NewSentinelHttpError(http.StatusBadRequest, fmt.Sprintf("Unable to download file from '%s': got status: '%s'", dl.Url, resp.Status)),
+		)
+	}
+
+	filename = downloadFilename(dl, resp.Header)
+	if filename == "" {
+		return "", "", WrapError(
+			fmt.Errorf("no filename for the download from '%s'", redactedURL),
+			NewSentinelHttpError(http.StatusBadRequest, fmt.Sprintf(`Unable to download file from '%s': nothing names the file. Set 'filename' on the entry, such as [{"url":"https://example.com/file","filename":"file.pdf"}], or make the server send a 'Content-Disposition' header with a filename`, dl.Url)),
+		)
+	}
+
+	path, err = ctx.writeToDisk(filename, resp.Body, budget)
+	if err != nil {
+		return "", "", fmt.Errorf("write downloaded file from '%s': %w", redactedURL, err)
+	}
+
+	return filename, path, nil
+}
+
+// downloadFilename returns the sanitized filename of a download, or "" when
+// nothing names it. The entry's filename comes first, as the caller knows what
+// it sends. Then comes the filename of the Content-Disposition header, then the
+// last segment of the URL path when it has an extension: object stores such as
+// S3 often serve files without the header, under keys that end with their
+// filename. The URL is the one the caller gave, not a redirect target, which
+// may be a CDN path or a blob ID.
+func downloadFilename(dl downloadFrom, header http.Header) string {
+	if dl.Filename != "" {
+		return SanitizeFilename(dl.Filename)
+	}
+
+	// FIXME: the implementation of this method might not be complete, as it
+	//  fails to parse an empty mediatype.
+	//  See: https://github.com/golang/go/issues/69551.
+	_, params, err := mime.ParseMediaType(header.Get("Content-Disposition"))
+	if err == nil {
+		filename := SanitizeFilename(params["filename"])
+		if strings.TrimSpace(filename) != "" {
+			return filename
+		}
+	}
+
+	u, err := url.Parse(dl.Url)
+	if err != nil {
+		return ""
+	}
+	filename := SanitizeFilename(path.Base(u.Path))
+	ext := path.Ext(filename)
+	if len(ext) < 2 || ext == filename {
+		return ""
+	}
+
+	return filename
+}
+
+// downloadFailure words the failure of a download for the client. A network
+// error names the address the container resolved and dialed, which is internal,
+// so the message says only that the host could not be reached.
+func downloadFailure(err error) string {
+	var (
+		opErr  *net.OpError
+		dnsErr *net.DNSError
+	)
+	if errors.As(err, &opErr) || errors.As(err, &dnsErr) {
+		return "the host could not be reached"
+	}
+
+	return err.Error()
+}
+
+// giveUpDownload is the [retryablehttp.ErrorHandler] of a download. The
+// default handler names the URL whole in its error; this one redacts the URL
+// of the last transport error ([gotenberg.RedactURLError]) and names the last
+// status, which the default one leaves out.
+func giveUpDownload(resp *http.Response, err error, attempts int) (*http.Response, error) {
+	status := ""
+	if resp != nil {
+		status = resp.Status
+		if resp.Body != nil {
+			_ = resp.Body.Close()
+		}
+	}
+
+	switch {
+	case err != nil:
+		return nil, fmt.Errorf("giving up after %d attempt(s): %w", attempts, gotenberg.RedactURLError(err))
+	case status != "":
+		return nil, fmt.Errorf("got status '%s' after %d attempt(s)", status, attempts)
+	default:
+		return nil, fmt.Errorf("giving up after %d attempt(s)", attempts)
+	}
+}
+
+// copyToDisk copies an uploaded file into the working directory.
+func (ctx *Context) copyToDisk(fh *multipart.FileHeader, budget *bodyBudget) error {
+	in, err := fh.Open()
+	if err != nil {
+		return fmt.Errorf("open multipart file: %w", err)
+	}
+	defer func() {
+		err := in.Close()
+		if err != nil {
+			ctx.logger.ErrorContext(context.Background(), fmt.Sprintf("close file header: %s", err))
+		}
+	}()
+
+	filename := SanitizeFilename(fh.Filename)
+
+	path, err := ctx.writeToDisk(filename, in, budget)
+	if err != nil {
+		return fmt.Errorf("copy multipart file to local file: %w", err)
+	}
+
+	ctx.addFile(filename, path)
+
+	return nil
+}
+
+// writeToDisk writes the content of r into a new file of the working
+// directory, counting it against budget, and returns its path. filename must
+// be sanitized already.
+func (ctx *Context) writeToDisk(filename string, r io.Reader, budget *bodyBudget) (string, error) {
+	// Use a UUID-based name on disk to avoid filesystem NAME_MAX limits with
+	// long filenames.
+	// See: https://github.com/gotenberg/gotenberg/issues/1500.
+	path := fmt.Sprintf("%s/%s", ctx.dirPath, uuid.New().String()+safeExt(filename))
+
+	out, err := os.Create(path)
+	if err != nil {
+		return "", fmt.Errorf("create local file: %w", err)
+	}
+	defer func() {
+		err := out.Close()
+		if err != nil {
+			ctx.logger.ErrorContext(context.Background(), fmt.Sprintf("close local file: %s", err))
+		}
+	}()
+
+	_, err = io.Copy(out, &trackingReader{R: r, AddReadBytes: budget.add})
+	if err != nil {
+		return "", fmt.Errorf("copy to local file: %w", err)
+	}
+
+	return path, nil
+}
+
+// linkOriginalFilenames creates symlinks from the original filenames to the
+// UUID-based disk names, so that relative asset references (e.g., <img
+// src="image.png">) resolve when Chromium navigates to a file:// URL.
+//
+// It is best-effort: a symlink may fail for a filename exceeding the
+// filesystem NAME_MAX limit, the reason UUIDs were introduced in the first
+// place, and must not decide the outcome of the request.
+func (ctx *Context) linkOriginalFilenames() {
+	for originalName, diskPath := range ctx.files {
+		symlinkPath := fmt.Sprintf("%s/%s", ctx.dirPath, originalName)
+		if symlinkPath == diskPath {
+			continue
+		}
+
+		err := os.Symlink(filepath.Base(diskPath), symlinkPath)
+		if err != nil {
+			ctx.logger.DebugContext(context.Background(), fmt.Sprintf("skip symlink for '%s': %s", originalName, err))
+		}
+	}
+}
+
+// Timeout returns the time limit of the request, that is --api-timeout (env
+// API_TIMEOUT), or zero when it is unknown. Routes use it to refuse a value,
+// such as a delay, that cannot fit in it.
+func (ctx *Context) Timeout() time.Duration {
+	return ctx.timeout
+}
+
+// Request returns the [http.Request].
+func (ctx *Context) Request() *http.Request {
+	return ctx.echoCtx.Request()
+}
+
+// FormData return a [FormData]. Every [FormData] of a request records the
+// fields it reads in the same set, which [FormData.RejectUnknown] checks.
+func (ctx *Context) FormData() *FormData {
+	if ctx.fields == nil {
+		ctx.fields = newFormFields()
+	}
+
+	return &FormData{
+		values:         ctx.values,
+		files:          ctx.files,
+		diskToOriginal: ctx.diskToOriginal,
+		fileOrder:      ctx.fileOrder,
+		fileBase:       ctx.fileBase,
+		fields:         ctx.fields,
+		fileFields:     ctx.fileFields,
+		errors:         nil,
+	}
+}
+
+// FileCount returns the number of files received in the request.
+func (ctx *Context) FileCount() int {
+	return len(ctx.files)
+}
+
+// OriginalFilename returns the original filename associated with a disk path.
+// If no mapping exists, it falls back to [filepath.Base].
+func (ctx *Context) OriginalFilename(diskPath string) string {
+	ctx.diskToOriginalMu.RLock()
+	original, ok := ctx.diskToOriginal[diskPath]
+	ctx.diskToOriginalMu.RUnlock()
+
+	if ok {
+		return original
+	}
+	return filepath.Base(diskPath)
+}
+
+// RegisterDiskPath associates a disk path with an original filename so that
+// [Context.OriginalFilename] can resolve it later. It is safe for concurrent
+// use.
+func (ctx *Context) RegisterDiskPath(diskPath, originalFilename string) {
+	ctx.diskToOriginalMu.Lock()
+	defer ctx.diskToOriginalMu.Unlock()
+
+	if ctx.diskToOriginal == nil {
+		ctx.diskToOriginal = make(map[string]string)
+	}
+
+	ctx.diskToOriginal[diskPath] = originalFilename
+}
+
+// DirPath returns the path to the request's working directory.
+func (ctx *Context) DirPath() string {
+	return ctx.dirPath
+}
+
+// GeneratePath generates a path within the context's working directory.
+// It generates a new UUID-based filename, which drops an extension longer
+// than 32 characters. It does not create a file.
+func (ctx *Context) GeneratePath(extension string) string {
+	if len(extension) > maxDiskExtLength {
+		extension = ""
+	}
+
+	return fmt.Sprintf("%s/%s%s", ctx.dirPath, uuid.New().String(), extension)
+}
+
+// GeneratePathFromFilename generates a path within the context's working
+// directory. It uses a UUID-based name on disk to avoid filesystem NAME_MAX
+// limits but registers the given filename so that [Context.OriginalFilename]
+// can resolve it. It does not create a file.
+func (ctx *Context) GeneratePathFromFilename(filename string) string {
+	safeName := uuid.New().String() + safeExt(filename)
+	path := fmt.Sprintf("%s/%s", ctx.dirPath, safeName)
+	ctx.RegisterDiskPath(path, filename)
+	return path
+}
+
+// CreateSubDirectory creates a subdirectory within the context's working
+// directory.
+func (ctx *Context) CreateSubDirectory(dirName string) (string, error) {
+	path := fmt.Sprintf("%s/%s", ctx.dirPath, dirName)
+	err := ctx.mkdirAll.MkdirAll(path, 0o755)
+	if err != nil {
+		return "", fmt.Errorf("create sub-directory %s: %w", path, err)
+	}
+	return path, nil
+}
+
+// Rename is just a wrapper around [os.Rename], as we need to mock this
+// behavior in our tests.
+func (ctx *Context) Rename(oldpath, newpath string) error {
+	ctx.Log().DebugContext(ctx, fmt.Sprintf("rename %s to %s", oldpath, newpath))
+	err := ctx.pathRename.Rename(oldpath, newpath)
+	if err != nil {
+		return fmt.Errorf("rename path: %w", err)
+	}
+	return nil
+}
+
+// AddOutputPaths adds the given paths. Those paths will be used later to build
+// the output file.
+func (ctx *Context) AddOutputPaths(paths ...string) error {
+	if ctx.cancelled {
+		return ErrContextAlreadyClosed
+	}
+
+	for _, path := range paths {
+		if !strings.HasPrefix(path, ctx.dirPath) {
+			return ErrOutOfBoundsOutputPath
+		}
+
+		ctx.outputPaths = append(ctx.outputPaths, path)
+	}
+
+	return nil
+}
+
+// SetOutputHeader sets a header that describes the output, such as the
+// outcome of a remediation. It goes with the output file, on the response or
+// on the webhook request. Like [Context.AddOutputPaths], it is not safe for
+// concurrent use.
+func (ctx *Context) SetOutputHeader(key, value string) {
+	if ctx.outputHeaders == nil {
+		ctx.outputHeaders = make(map[string]string)
+	}
+
+	ctx.outputHeaders[key] = value
+}
+
+// OutputHeaders returns a copy of the headers [Context.SetOutputHeader] set.
+func (ctx *Context) OutputHeaders() map[string]string {
+	return maps.Clone(ctx.outputHeaders)
+}
+
+// Log returns the context [slog.Logger].
+func (ctx *Context) Log() *slog.Logger {
+	return ctx.logger
+}
+
+// BuildOutputFile builds the output file according to the output paths
+// registered in the context. If many output paths, an archive is created.
+func (ctx *Context) BuildOutputFile() (string, error) {
+	if ctx.cancelled {
+		return "", ErrContextAlreadyClosed
+	}
+
+	if len(ctx.outputPaths) == 0 {
+		return "", errors.New("no output path")
+	}
+
+	if len(ctx.outputPaths) == 1 {
+		ctx.logger.DebugContext(ctx, fmt.Sprintf("only one output file '%s', skip archive creation", ctx.outputPaths[0]))
+		return ctx.outputPaths[0], nil
+	}
+
+	filesInfo, err := archives.FilesFromDisk(ctx.Context, nil, func() map[string]string {
+		f := make(map[string]string)
+		for _, outputPath := range ctx.outputPaths {
+			f[outputPath] = ctx.OriginalFilename(outputPath)
+		}
+		return f
+	}())
+	if err != nil {
+		return "", fmt.Errorf("create files info: %w", err)
+	}
+
+	archivePath := ctx.GeneratePath(".zip")
+	out, err := os.Create(archivePath)
+	if err != nil {
+		return "", fmt.Errorf("create zip file: %w", err)
+	}
+	defer func(out *os.File) {
+		err := out.Close()
+		if err != nil {
+			ctx.logger.ErrorContext(ctx, fmt.Sprintf("close zip file: %s", err))
+		}
+	}(out)
+
+	err = archives.Zip{}.Archive(ctx.Context, out, filesInfo)
+	if err != nil {
+		return "", fmt.Errorf("archive output files: %w", err)
+	}
+
+	ctx.logger.DebugContext(ctx, fmt.Sprintf("archive '%s' created", archivePath))
+
+	return archivePath, nil
+}
+
+// OutputFilename returns the filename based on the given output path or the
+// "Gotenberg-Output-Filename" header's value.
+func (ctx *Context) OutputFilename(outputPath string) string {
+	if ctx.outputFilename == "" {
+		return ctx.OriginalFilename(outputPath)
+	}
+
+	filename := ctx.outputFilename
+
+	return fmt.Sprintf("%s%s", filename, filepath.Ext(outputPath))
+}
+
+// ContentDisposition returns the Content-Disposition header value of an
+// attachment named filename. A name with non-ASCII characters also travels in
+// the "filename*" parameter, percent-encoded in UTF-8, beside an ASCII
+// "filename" fallback for the clients that read only that one. See RFC 6266,
+// section 4.3, and RFC 8187, section 3.2.
+func ContentDisposition(filename string) string {
+	var fallback strings.Builder
+	ascii := true
+	for _, r := range filename {
+		if r < utf8.RuneSelf && r >= ' ' && r != 0x7f {
+			fallback.WriteRune(r)
+			continue
+		}
+		ascii = false
+		fallback.WriteByte('_')
+	}
+
+	value := fmt.Sprintf(`attachment; filename="%s"`, strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(fallback.String()))
+	if ascii {
+		return value
+	}
+
+	var encoded strings.Builder
+	for _, b := range []byte(filename) {
+		if isAttrChar(b) {
+			encoded.WriteByte(b)
+			continue
+		}
+		fmt.Fprintf(&encoded, "%%%02X", b)
+	}
+
+	return fmt.Sprintf("%s; filename*=UTF-8''%s", value, encoded.String())
+}
+
+// isAttrChar reports whether b is an attr-char of RFC 8187, section 3.2.1: the
+// bytes that stay as they are in an extended parameter value.
+func isAttrChar(b byte) bool {
+	switch {
+	case b >= 'a' && b <= 'z', b >= 'A' && b <= 'Z', b >= '0' && b <= '9':
+		return true
+	}
+	return strings.IndexByte("!#$&+-.^_`|~", b) >= 0
+}
+
+// maxDiskExtLength bounds the extension copied onto a UUID-based disk name.
+// The UUID stem is 36 characters, so a longer extension risks NAME_MAX, which
+// is 255 on ext4 and overlayfs. The untruncated name is kept in
+// [Context.diskToOriginal], which never reaches the filesystem.
+const maxDiskExtLength = 32
+
+// safeExt returns the extension to append to a UUID-based disk name. It drops
+// an extension too long to be safe rather than let [os.Create] fail with
+// ENAMETOOLONG, which surfaced to the caller as a bare 500.
+func safeExt(filename string) string {
+	ext := filepath.Ext(filename)
+	if len(ext) > maxDiskExtLength {
+		return ""
+	}
+
+	return ext
+}
+
+// uniqueFilename returns filename, or a numbered variant of it when the
+// request already carries a file by that name.
+//
+// Uploads are keyed by their sanitized original filename, so two files sharing
+// one name used to collide: the second overwrote the first and only one
+// reached the conversion, while both stayed on disk and counted against the
+// body limit. Sanitizing strips directories, so "a/doc.pdf" and "b/doc.pdf"
+// collide too.
+func (ctx *Context) uniqueFilename(filename string) string {
+	_, exists := ctx.files[filename]
+	if !exists {
+		return filename
+	}
+
+	ext := filepath.Ext(filename)
+	stem := strings.TrimSuffix(filename, ext)
+
+	for i := 2; ; i++ {
+		candidate := fmt.Sprintf("%s (%d)%s", stem, i, ext)
+		_, exists = ctx.files[candidate]
+		if !exists {
+			return candidate
+		}
+	}
+}
+
+// trackFileOrder records where a file arrived in the request and the filename
+// it arrived under, so [FormData.paths] can order it the way the caller sent
+// it.
+func (ctx *Context) trackFileOrder(path, base string) {
+	if ctx.fileOrder == nil {
+		ctx.fileOrder = make(map[string]int)
+		ctx.fileBase = make(map[string]string)
+	}
+
+	ctx.fileOrder[path] = len(ctx.fileOrder)
+	ctx.fileBase[path] = base
+}
+
+// SanitizeFilename strips path separators (including backslashes, which
+// [filepath.Base] ignores on Linux) and control characters from a
+// caller-supplied filename, then NFC-normalizes the result. This prevents a
+// Windows-side Zip Slip when an output zip is extracted by a permissive
+// extractor that interprets '\' as a path separator.
+func SanitizeFilename(name string) string {
+	if i := strings.LastIndexAny(name, `/\`); i >= 0 {
+		name = name[i+1:]
+	}
+	name = strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7f {
+			return -1
+		}
+		return r
+	}, name)
+	return norm.NFC.String(name)
+}

@@ -1,0 +1,105 @@
+[build-system]
+requires = ["setuptools>=80.8.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pyhanko-cli"
+description = "CLI tools for stamping and signing PDF files"
+authors = [{name = "Matthias Valvekens", email = "dev@mvalvekens.be"}]
+maintainers = [{name = "Matthias Valvekens", email = "dev@mvalvekens.be"}]
+license = "MIT"
+license-files = ["LICENSE"]
+keywords = [
+    "signature",
+    "pdf",
+    "pades",
+    "digital-signature",
+    "pkcs11",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Programming Language :: Python :: 3.15",
+    "Topic :: Security :: Cryptography",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+requires-python = ">=3.11"
+dependencies = [
+    "asn1crypto>=1.5.1",
+    "tzlocal>=4.3",
+    "pyhanko",
+    "pyhanko-certvalidator",
+    "pyyaml>=6.0",
+    "certifi>=2023.5.7",
+    "click>=8.1.3,!=8.2.0",
+    "platformdirs>=4.3.8",
+]
+version = "0.0.0.dev1"
+
+
+[project.readme]
+file = "README.md"
+content-type = "text/markdown"
+
+[project.urls]
+Homepage = "https://github.com/MatthiasValvekens/pyHanko"
+Documentation = "https://docs.pyhanko.eu/"
+Changes = "https://docs.pyhanko.eu/en/latest/changelog.html"
+"Source Code" = "https://github.com/MatthiasValvekens/pyHanko"
+"Issue Tracker" = "https://github.com/MatthiasValvekens/pyHanko/issues"
+
+[dependency-groups]
+testing-base = [
+    "common-test-utils",
+    "pytest>=6.1.1",
+    "freezegun>=1.1.0",
+    "certomancer[web-api-async]>=0.16.0",
+    "pytest-cov>=4.0,<7.2",
+    "pytest-asyncio>=1.1.0,<2.0",
+]
+testing = [
+    {include-group = "testing-base"},
+    "aiohttp>=3.9,<3.15",
+    "pytest-aiohttp>=1.0.4,<1.2.0",
+    "pyhanko[pkcs11,opentype,async_http,image-support,qr,etsi]"
+]
+testing-pkcs11-setup = [
+    "certomancer[pkcs11]>=0.16.0",
+]
+
+
+[project.scripts]
+pyhanko = "pyhanko.__main__:launch"
+
+[tool.setuptools]
+include-package-data = false
+package-dir = {"" = "src"}
+
+
+[tool.setuptools.package-data]
+pyhanko = ["py.typed"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+asyncio_mode = "strict"
+asyncio_default_fixture_loop_scope="function"
+markers = [
+    "nosmoke: exclude from smoke test runs",
+    "hsm: run test on HSM platform",
+    "algo: indicate signing algorithm used in test",
+    "required_mechanism: require a specific PKCS#11 mechanism"
+]
+strict = true
+
+[tool.coverage.run]
+omit = ["*docs*", "*test*", "*venv*", "setup.py", "_saslprep.py"]
+
+[tool.coverage.report]
+exclude_lines = ["pragma: no cover", "pragma: nocover", "raise AssertionError", "raise NotImplementedError", "TYPE_CHECKING", "^\\s*\\.\\.\\."]
+precision = 2

@@ -1,0 +1,188 @@
+# Contributing to Gotenberg
+
+Gotenberg is a Docker-based API for converting documents to PDF. Two rules override everything else:
+
+- **Backward compatibility.** Never rename or remove CLI flags, environment variables, API form fields, or HTTP endpoints without discussion.
+- **Defensive programming.** Assume input is malformed, handle errors explicitly, never panic.
+
+## Toolchain
+
+- Module: `github.com/gotenberg/gotenberg/v9`
+- Go: see version in `go.mod`
+- Docker
+- Node.js (see `.node-version`), for Prettier linting
+- golangci-lint: the Makefile runs golangci-lint at a pinned version through `go run`, never the copy on your `PATH`.
+
+## Before you start
+
+For non-trivial changes, open an issue or a draft PR first. Describe what needs to change, the proposed solution (files to modify, interface changes, form fields), and which integration test tags are affected.
+
+One thing per PR. Keep features, bug fixes, and refactoring in separate PRs.
+
+When adding a feature or route, write the Gherkin scenario before the Go code, and plan to update the Bruno collection (`.bruno/`) if a route changes.
+
+## Project layout
+
+```
+cmd/gotenberg/       -> Entry point only (wiring/startup). No business logic.
+pkg/gotenberg/       -> Core module system, interfaces, utilities, mocks.
+pkg/modules/         -> Feature modules (api, chromium, libreoffice, pdf, etc.).
+pkg/standard/        -> Wires all standard modules together via imports.
+test/integration/    -> Gherkin feature files + Go test infrastructure.
+test/corpus/         -> Release QA corpus: realistic documents, one feature file per engine.
+build/               -> Dockerfile, fonts, Chromium config.
+.bruno/              -> Bruno API collection (mirrors every route).
+```
+
+Key interfaces live in `pkg/gotenberg/`: `Module`, `Provisioner`, `Validator`, `Debuggable`. Every module implements `Descriptor()` and self-registers via `init()`.
+
+## Setup and Makefile
+
+All build and verification tasks go through the Makefile. Do not run `go` commands directly unless debugging a specific package.
+
+| Command                 | Purpose                                          | When to use                                                              |
+| ----------------------- | ------------------------------------------------ | ------------------------------------------------------------------------ |
+| `make help`             | Show the available commands                      | To discover targets                                                      |
+| `make build`            | Build the Gotenberg Docker image                 | Before integration tests or manual testing                               |
+| `make fmt`              | Format Go code and tidy the dependencies         | Before committing                                                        |
+| `make prettify`         | Format non-Go files (Markdown, YAML, JSON)       | Before committing                                                        |
+| `make lint`             | Lint Go code (zero warnings permitted)           | Before committing                                                        |
+| `make lint-prettier`    | Lint non-Go files                                | Before committing                                                        |
+| `make lint-todo`        | Find TODOs in Go code                            | Before committing                                                        |
+| `make test-unit`        | Run unit tests                                   | Before committing                                                        |
+| `make test-integration` | Run all integration tests (40 min timeout)       | Before committing                                                        |
+| `make test-corpus`      | Run the release QA corpus (40 min timeout)       | When a change can alter how real documents come out                      |
+| `make godoc`            | Serve GoDoc at `localhost:6060`                  | To verify documentation                                                  |
+| `make run`              | Run a Gotenberg container via `docker compose`   | Manual testing. Flags configured via Makefile variables and compose.yaml |
+| `make telemetry`        | Start an OpenTelemetry collector and OpenObserve | When testing telemetry locally                                           |
+| `make down`             | Stop all compose containers                      | After manual testing                                                     |
+
+Run only the integration test tag(s) relevant to your change rather than the full suite:
+
+```bash
+make test-integration TAGS=health
+make test-integration TAGS=chromium-convert-html
+make test-integration TAGS="pdf-merge,pdf-split"
+```
+
+## Code conventions
+
+### Module system
+
+Gotenberg uses a self-registering module architecture inspired by CaddyServer. Each module lives in `pkg/modules/<name>/`, implements at minimum `gotenberg.Module` (`Descriptor()`), and self-registers via `init()`. Wiring happens through `pkg/standard/`.
+
+Determine if a feature belongs in an existing module before creating a new one. Only create a new module for a genuinely separate concern.
+
+The `cmd/gotenberg/` package is strictly for wiring and startup. No business logic.
+
+### Backward compatibility
+
+CLI flags, environment variables, API form fields, HTTP endpoints, and default values that alter existing behavior must not change without discussion. Deprecate old names with `fs.MarkDeprecated()` and register both the old and new names side by side.
+
+If a change violates backward compatibility, flag it as a breaking change in the PR description.
+
+### Error handling
+
+- Wrap every error with context: `fmt.Errorf("description: %w", err)`.
+- Never swallow errors silently.
+- Match errors with `errors.Is`, never `strings.Contains`.
+- No panics in production code paths.
+- Validate input defensively.
+
+### Error messages
+
+Client- and operator-facing error messages state what failed, why when non-obvious, and how to fix it when a fix exists. Internal errors (the wrapped `fmt.Errorf` chains that only reach logs) are exempt; keep them precise and technical.
+
+- Client (HTTP response body): name the offending form field and its valid values. Never return a bare `http.StatusText()`.
+- Operator (startup, `Provision`, `Validate`): name the environment variable or flag to set, plus the path or value checked.
+- Security and filtering errors stay generic for clients. Don't reveal allow/deny lists or private-IP policy. Log the specific reason for operators.
+- No hedging ("while others may have failed"). No raw `os.Stat` or exec output in the human-facing remedy.
+
+### Logging
+
+Use `gotenberg.Logger(mod)` to get the module's slog logger during `Provision()`. All log calls must be context-aware: `logger.DebugContext(ctx, msg)`, `logger.InfoContext(ctx, msg)`, `logger.ErrorContext(ctx, msg)`. This propagates trace/span IDs into structured logs when OpenTelemetry is active.
+
+### Telemetry
+
+External tool calls (Chromium, LibreOffice) must create OTEL spans with `trace.SpanKindClient` and `semconv.ServerAddress("toolname")`. HTTP calls (webhooks, downloads) wrap their client's transport with `gotenberg.NewTracingTransport`, which creates one HTTP client span per attempt, redacts its `url.full`, and injects the trace context. The span over the whole call, retries included, is `trace.SpanKindInternal` and carries the redacted URL as `url.full`. Errors and logs name an outbound URL through `gotenberg.RedactURL` too, since its query may hold a token, and the `*url.Error` of an HTTP client through `gotenberg.RedactURLError`. A success leaves the span status unset; a failure sets it to Error with an `error.type`, through `gotenberg.SetSpanStatus`. Use `gotenberg.Tracer()` and `gotenberg.Meter()` for traces and metrics.
+
+Names follow the [OpenTelemetry naming guidelines](https://opentelemetry.io/docs/specs/semconv/general/naming/). Use a [standard attribute](https://opentelemetry.io/docs/specs/semconv/registry/attributes/) when one has the same meaning, such as `error.type` or `url.full`. Prefix every other metric, attribute and event with `gotenberg.`, keep namespaces singular, and put units in the instrument, not in the name.
+
+### Import ordering
+
+Enforced by `gci`: standard library, then third-party, then `github.com/gotenberg/gotenberg/v9`. Three groups separated by blank lines.
+
+## Documentation conventions
+
+### Tone
+
+- Short, declarative sentences. Say what it does, then stop.
+- Lead with the action. "Validates the input", not "This function validates the input".
+- Active voice. "Gotenberg checks the input", not "The input is checked by Gotenberg".
+- No em dashes. Use a period, colon, or comma.
+- No "we" hedging. "Don't...", not "We do not recommend...".
+
+### Godoc
+
+Every exported identifier has a doc comment starting with its name, and every package a `doc.go` with a `// Package foo ...` comment. Reference identifiers with `[Name]` for pkg.go.dev links. Test, fuzz, benchmark and example functions are exempt.
+
+```go
+// Package api manages a LibreOffice instance, driven through lok, and
+// converts documents to PDF with it.
+package api
+```
+
+```go
+// Callers pass the Pinned slice from [OutboundDecision] so that the dial
+// targets exactly the IPs that [DecideOutbound] resolved, preventing DNS
+// rebinding between validation and connect.
+```
+
+### Code comments
+
+- Explain _why_, not _what_.
+- No numbered steps, no section separators, no comments that restate the code.
+- Reference spec clauses where relevant (`// Per ISO 32000-2, Table 116...`).
+- Mark debt with `// TODO: [context]`.
+
+## Testing
+
+### Unit tests
+
+Table-driven tests in `*_test.go` files. Use the comprehensive mock implementations in `pkg/gotenberg/mocks.go` rather than rolling new ones.
+
+### Integration tests
+
+Gherkin (BDD) via Godog with `testcontainers-go` for Docker orchestration. Feature files live in `test/integration/features/`; step definitions live in `test/integration/scenario/`. Read `scenario.go` and `containers.go` before writing new tests.
+
+`make build` is required before running integration tests. The full suite has a 40-minute timeout, so run only the tag(s) relevant to your change.
+
+The release QA corpus is a separate suite, `make test-corpus`, that runs realistic documents with recorded facts; see `test/corpus/README.md`.
+
+## Pull requests
+
+### Commits
+
+[Conventional Commits](https://www.conventionalcommits.org/), title only: `<type>(<scope>): <description>`. No body, no trailers (no `Co-Authored-By`, no `Signed-off-by`).
+
+Common types: `feat`, `fix`, `refactor`, `test`, `docs`, `chore`, `ci`, `build`. The scope names the area of the change.
+
+Stage specific files. Never `git add -A` or `git add .`.
+
+### Checklist
+
+Before opening the PR, confirm:
+
+- [ ] No backward-compatibility regression. See [Backward compatibility](#backward-compatibility).
+- [ ] Code conventions met (error wrapping, logging, telemetry, import ordering, no panics, no business logic in `cmd/`). See [Code conventions](#code-conventions).
+- [ ] Documentation conventions met (Godoc on every exported identifier, `doc.go` for new packages, tone). See [Documentation conventions](#documentation-conventions).
+- [ ] `make fmt && make lint && make prettify && make lint-prettier` pass with zero warnings.
+- [ ] `make test-unit` passes.
+- [ ] Relevant `make test-integration TAGS=...` passes.
+- [ ] Bruno collection updated if routes were added or modified.
+
+## Further reading
+
+- [`test/integration/README.md`](test/integration/README.md) — Gherkin step reference, available tags, writing new tests.
+- [`test/corpus/README.md`](test/corpus/README.md) — release QA corpus: realistic documents, their manifest, how to add a fixture.
+- [`.bruno/README.md`](.bruno/README.md) — `.bru` file format, conventions, route update checklist.

@@ -1,0 +1,233 @@
+import asyncio
+import datetime
+import os
+
+import pytest
+import tzlocal
+import yaml
+from asn1crypto import pem, x509
+from certomancer import PKIArchitecture
+from certomancer.registry import CertLabel, ServiceLabel
+from click.testing import CliRunner
+from freezegun import freeze_time
+from pyhanko.cli._ctx import PasswordPrompter
+from pyhanko.pdf_utils.decode_limits import DecodeLimits
+from pyhanko.pdf_utils.misc import PdfStrictReadError
+from pyhanko.pdf_utils.reader import PdfFileReader
+from pyhanko.sign.validation import (
+    validate_pdf_signature,
+)
+from pyhanko.sign.validation.ades import ades_lta_validation
+from pyhanko.sign.validation.policy_decl import (
+    PdfSignatureValidationSpec,
+    SignatureValidationSpec,
+)
+from pyhanko_certvalidator import ValidationContext
+from pyhanko_certvalidator.context import CertValidationPolicySpec
+from pyhanko_certvalidator.policy_decl import (
+    REQUIRE_REVINFO,
+    CertRevTrustPolicy,
+)
+from pyhanko_certvalidator.registry import SimpleTrustManager
+from pyhanko_testing_commons.test_data.samples import (
+    MINIMAL,
+    TESTING_CA,
+    TESTING_CA_ECDSA,
+    TESTING_CA_ED448,
+    TESTING_CA_ED25519,
+    TESTING_CA_QUALIFIED,
+)
+from pyhanko_testing_commons.test_utils.live_http import live_pki_services
+
+pytest_plugins = ["pyhanko_testing_commons.test_utils.pkcs11_utils.fixtures"]
+
+
+INPUT_PATH = 'input.pdf'
+SIGNED_OUTPUT_PATH = 'output.pdf'
+DUMMY_PASSPHRASE = "secret"
+
+
+class DummyPrompter(PasswordPrompter):
+    def __init__(self, password):
+        self.password = password
+
+    def prompt_for_password(self, prompt: str) -> str:
+        return self.password
+
+
+DEFAULT_CERTOMANCER_ARCHITECTURES = ["rsa", "ecdsa", "ed25519", "ed448"]
+# no ed448 timestamping in Certomancer
+# FIXME deal with the bug on the Certomancer end
+LTV_CERTOMANCER_ARCHITECTURES = ["rsa", "ecdsa", "ed25519"]
+CERTOMANCER_ARCHITECTURES = {
+    "rsa": TESTING_CA,
+    "ecdsa": TESTING_CA_ECDSA,
+    "ed25519": TESTING_CA_ED25519,
+    "ed448": TESTING_CA_ED448,
+    "qualified": TESTING_CA_QUALIFIED,
+}
+FREEZE_DT = datetime.datetime(2020, 8, 1, tzinfo=tzlocal.get_localzone())
+
+
+@pytest.fixture(scope="module", params=DEFAULT_CERTOMANCER_ARCHITECTURES)
+def pki_arch_name(request):
+    return request.param
+
+
+@pytest.fixture
+def pki_mocks_enabled():
+    return True
+
+
+@pytest.fixture
+def pki_arch(pki_arch_name, pki_mocks_enabled):
+    with freeze_time(FREEZE_DT):
+        arch = CERTOMANCER_ARCHITECTURES[pki_arch_name]
+        if pki_mocks_enabled:
+            with live_pki_services() as services:
+                services.register(arch)
+                yield arch
+        else:
+            yield arch
+
+
+# cli_runner is autouse to ensure it gets priority in the dependency graph
+@pytest.fixture(scope="function", autouse=True)
+def cli_runner():
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+        with open(INPUT_PATH, 'wb') as outf:
+            outf.write(MINIMAL)
+        yield runner
+
+
+def _write_cert(
+    arch: PKIArchitecture, label: CertLabel, fname: str, use_pem: bool = True
+) -> str:
+    cert = arch.get_cert(label)
+    with open(fname, 'wb') as outf:
+        if use_pem:
+            outf.write(pem.armor('CERTIFICATE', cert.dump()))
+        else:
+            outf.write(cert.dump())
+    return fname
+
+
+@pytest.fixture
+def root_cert_data(pki_arch):
+    return pki_arch.get_cert(CertLabel('root'))
+
+
+@pytest.fixture
+def root_cert(pki_arch):
+    return _write_cert(pki_arch, CertLabel('root'), 'root.cert.pem')
+
+
+@pytest.fixture
+def cert_chain(pki_arch, root_cert):
+    return (
+        root_cert,
+        _write_cert(pki_arch, CertLabel('interm'), 'interm.cert.pem'),
+        _write_cert(
+            pki_arch, CertLabel('signer1'), 'signer.crt', use_pem=False
+        ),
+    )
+
+
+@pytest.fixture
+def timestamp_url(pki_arch: PKIArchitecture) -> str:
+    tsa = pki_arch.service_registry.get_tsa_info(ServiceLabel('tsa'))
+    return tsa.url
+
+
+@pytest.fixture
+def p12_keys(pki_arch, post_validate):
+    p12_bytes = pki_arch.package_pkcs12(
+        CertLabel("signer1"), password=DUMMY_PASSPHRASE.encode("utf8")
+    )
+    fname = 'signer.p12'
+    with open(fname, 'wb') as outf:
+        outf.write(p12_bytes)
+    return fname
+
+
+def _write_config(config: dict, fname: str = 'pyhanko.yml'):
+    with open(fname, 'w', encoding='utf-8') as outf:
+        yaml.dump(config, outf)
+
+
+def _test_log(msg: str, *args):
+    # Use print instead of logger for now,
+    # since the `click` output stream management
+    # messes with the logging settings otherwise,
+    # causing writes to closed I/O handles.
+    # TODO: figure out how to handle this properly
+    print(msg.format(*args))
+
+
+def _validate_last_sig_in(root: x509.Certificate, pdf_file, *, strict):
+    with open(pdf_file, 'rb') as result:
+        _test_log(f"Validating last signature in {pdf_file}...")
+        r = PdfFileReader(
+            result,
+            strict=strict,
+            decode_limits=DecodeLimits.for_trusted_input(),
+        )
+        # Little hack for the tests with encrypted files
+        if r.security_handler is not None:
+            r.decrypt("ownersecret")
+        last_sig = r.embedded_regular_signatures[-1]
+        # if there's a docts, we assume it's PAdES
+        trust_manager = SimpleTrustManager.build(
+            trust_roots=[root],
+        )
+        if r.embedded_timestamp_signatures:
+            ades_status = asyncio.run(
+                ades_lta_validation(
+                    last_sig,
+                    PdfSignatureValidationSpec(
+                        SignatureValidationSpec(
+                            cert_validation_policy=CertValidationPolicySpec(
+                                trust_manager=trust_manager,
+                                revinfo_policy=CertRevTrustPolicy(
+                                    REQUIRE_REVINFO,
+                                ),
+                            ),
+                        )
+                    ),
+                )
+            )
+            status = ades_status.api_status
+        else:
+            vc = ValidationContext(
+                trust_manager=trust_manager, allow_fetching=True
+            )
+            status = validate_pdf_signature(
+                last_sig, signer_validation_context=vc
+            )
+        assert status.bottom_line, status.pretty_print_details()
+        _test_log("Validation successful")
+
+
+@pytest.fixture
+def post_validate(root_cert_data):
+    yield
+    input_passes_strict = True
+    if os.path.isfile(INPUT_PATH):
+        try:
+            with open(INPUT_PATH, 'rb') as inf:
+                PdfFileReader(
+                    inf, decode_limits=DecodeLimits.for_trusted_input()
+                )
+        except PdfStrictReadError:
+            _test_log(
+                f"Input file {INPUT_PATH} can't be opened in strict mode, "
+                f"will validate output {SIGNED_OUTPUT_PATH} in "
+                f"nonstrict mode as well"
+            )
+            input_passes_strict = False
+
+    if os.path.isfile(SIGNED_OUTPUT_PATH):
+        _validate_last_sig_in(
+            root_cert_data, SIGNED_OUTPUT_PATH, strict=input_passes_strict
+        )

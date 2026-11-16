@@ -1,0 +1,65 @@
+# Bruno API Collection
+
+[Bruno](https://www.usebruno.com/) collection mirroring every Gotenberg route. Update the collection when adding or modifying a route.
+
+## Structure
+
+```
+.bruno/
+├── bruno.json                      # Collection config
+├── collection.bru                  # Collection-level defaults (Gotenberg-Trace header)
+├── environments/
+│   ├── Local.bru                   # baseUrl: http://localhost:3000
+│   └── Demo.bru                    # baseUrl: https://demo.gotenberg.dev
+├── Health & Info/                   # GET routes
+├── Chromium/Convert/                # POST routes grouped by module
+├── Chromium/Screenshot/
+├── LibreOffice/
+└── PDF/<Group>/                     # /forms/pdf routes: Pipe, Pages, Stamps, Edit, Attachments, Security, Compliance, Read
+```
+
+## `.bru` file format
+
+```bru
+meta {
+  name: <Human-readable name>
+  type: http
+  seq: <order within folder>
+}
+
+post {
+  url: {{baseUrl}}/forms/<path>
+  body: multipartForm
+  auth: none
+}
+
+body:multipart-form {
+  files: @file(../test/integration/testdata/<file>)
+  <mandatoryField>: <value>
+  ~<optionalField>: <value>
+}
+
+headers {
+  ~Gotenberg-Output-Filename: <name>
+  ~Gotenberg-Webhook-Url: http://localhost:8080/webhook
+  ~Gotenberg-Webhook-Method: POST
+  ~Gotenberg-Webhook-Events-Url: http://localhost:8080/webhook/events
+  ~Gotenberg-Webhook-Extra-Http-Headers: {"X-Custom":"value"}
+}
+```
+
+## Conventions
+
+- Mandatory fields have no prefix. Optional fields use `~` (disabled by default in Bruno).
+- File references point at `test/integration/testdata/`. Bruno resolves `@file(...)` against the collection root, `.bruno/`, not against the request's folder: write `@file(../test/integration/testdata/<file>)` at any folder depth.
+- Optional fields that only apply together, or only with another field's value, say so in a `docs { }` block, so that enabling one alone does not look like a bug.
+- Webhook and output filename headers appear on every POST route as optional (`~`), except the `PDF/Read/` routes: they answer JSON directly, and refuse the webhook headers.
+- One `.bru` file per request. The `/forms/pdf` single-operation routes take the stage's JSON options as flat form fields; files a stage reads (stamp images, attachments, certificates) are uploaded under `files` and referenced by filename.
+
+## Checklist
+
+1. Create or update the `.bru` file in the matching folder under `.bruno/`.
+2. Include all form fields from the route handler. Check `FormData*` calls in the route function.
+3. For file uploads, use `@file(...)` with a suitable test file.
+4. Verify the URL path matches the route's `Path` field exactly.
+5. For new module folders, keep the naming consistent (e.g., `PDF/Pages/`).

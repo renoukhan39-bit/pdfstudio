@@ -1,0 +1,16 @@
+meta {
+  name: Attachments
+  type: http
+  seq: 5
+}
+
+post {
+  url: {{baseUrl}}/forms/pdf/attachments
+  body: multipartForm
+  auth: none
+}
+
+body:multipart-form {
+  files: @file(../test/integration/testdata/page_1.pdf)
+  ~password:
+}
