@@ -1,10 +1,10 @@
 # Extracted reference archives
 
-These folders preserve the contents of ZIP files previously tracked at the repository root.
+These folders preserve the contents of ZIP files previously tracked at the repository root. They were moved from `reference-archives/` into `AnalyseFuture/upstream-reference-snapshots/` during repository organization.
 They are reference material, not imported application components or approved product dependencies.
 Each folder has the same name as its original ZIP without `.zip`; the ZIP's internal paths remain intact.
 Nested ZIP fixtures were also extracted into sibling folders and removed. Refer to each upstream license and notices before reuse.
-The `issue6286` PDF fixture set has no license or provenance metadata inside its ZIP.
+The `issue6286` PDF fixture set has no license or provenance metadata inside its ZIP. Upstream snapshots also contain test certificates, private-key fixtures, a Gotenberg `.env` example, and nested workflow files; do not treat them as product credentials or active configuration. This Git folder is archival organization, not access control.
 
 | Original ZIP | SHA-256 | Extracted files | Expanded bytes |
 | --- | --- | ---: | ---: |

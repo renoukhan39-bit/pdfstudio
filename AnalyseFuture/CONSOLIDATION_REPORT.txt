@@ -1,0 +1,9 @@
+CONSOLIDATION AND ARCHITECTURE REPORT
+
+The active implementation was analyzed by route, dispatcher, worker, conversion adapter, browser UI and associated tests. The main branch contains one implementation per active responsibility: merge in pdf_engine.py, other PDF operations in toolkit.py, decorations in page_decorations.py, DOCX conversion in gotenberg.py, ingress controls in upload_limits.py, and worker transport/execution in worker.py and worker_service.py. Grouping these files further without running tests would add import and guardrail risk without fixing an identified duplicate. They remain in the conventional app package. Tests, CI scripts and root tool configuration also remain in their working locations.
+
+Three scattered research documents were grouped in docs/research/. README and START-HERE links were updated. The 10,402 inactive upstream snapshot files were grouped under AnalyseFuture/upstream-reference-snapshots/, preserving each original ZIP-derived collection and its manifest. The moved tree is excluded from Docker build context; Python package discovery was already limited to app*. No source from the archive was wired into the product.
+
+No competing active implementations were combined, so active file consolidation count is zero. 107 identical Git blob groups across the upstream collections were deliberately retained, including independent pdf-lib and pdfme/pdf-lib copies and the pdfme website/generator subset. Deduplicating those copies would lose snapshot provenance. The feature catalog's overlapping proposals are described in DUPLICATE_ANALYSIS.txt; no new feature was implemented.
+
+The remote PPTX branch contains changes to current modules and four unique paths. It was documented as experimental but not merged: validation was explicitly deferred for this task, and a partial merge could damage working DOCX behavior. A future focused feature task can compare it against current main and run output/security checks.

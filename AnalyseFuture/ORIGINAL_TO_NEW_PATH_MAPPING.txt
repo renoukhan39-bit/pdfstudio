@@ -1,0 +1,10 @@
+ORIGINAL TO NEW PATH MAPPING
+
+Starting commit: a2b4a2c. Every starting tracked file and its exact planned destination appears as one row in COMPLETE_FILE_INVENTORY.txt; this document explains the prefix moves.
+
+1. reference-archives/<relative path> -> AnalyseFuture/upstream-reference-snapshots/<relative path> (10,402 files, including the original archive README). Relative paths, basenames, executable bits and collection boundaries were preserved. The 10,401 upstream files kept identical Git blobs; the archive README was updated only to explain its new location and fixture cautions. This removes inactive upstream trees from the active repository area without erasing them or their history.
+2. PUBLIC_PDF_REPOSITORIES.txt -> docs/research/PUBLIC_PDF_REPOSITORIES.txt (1 file). It is a candidate research register, not a runtime manifest.
+3. docs/RESEARCH-REFERENCES.md -> docs/research/RESEARCH-REFERENCES.md (1 file). It collects external research links.
+4. docs/COMPETITIVE-BENCHMARKS.md -> docs/research/COMPETITIVE-BENCHMARKS.md (1 file). It is a competitor study and comparison protocol.
+
+All other 68 starting active/conventional paths remain at their original paths. New documentation and recovery reports have no starting path. No active Python import, API route, test file, CI script or container entrypoint moved. Git rename detection can be used to inspect the 10,404 byte-identical moves; the per-file inventory remains the authoritative complete mapping if similarity detection reports the modified README as a delete/add.

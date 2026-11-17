@@ -1,0 +1,15 @@
+ACTIVE PDF STUDIO DEPENDENCY MAP
+
+Only the root pyproject.toml defines the active Python package. It requires Python >=3.11 and directly pins FastAPI 0.162.4, Starlette 1.6.0, Uvicorn 0.54.0, python-multipart 0.0.32, pypdf 7.0.1, cryptography 50.0.0, ReportLab 4.4.9 and Pillow 13.0.0. The dev extra pins pytest, httpx, pytest-cov, Ruff, build, pip-audit and PyYAML; the browser extra pins Playwright. Transitive Python packages are not locked.
+
+Browser: app/static/index.html loads app/static/styles.css and app/static/app.js. JavaScript calls the same-origin /api/tools routes; there is no Node package or frontend build. Node is used only for the contributor JavaScript syntax check.
+
+Public API: app/main.py depends on FastAPI/Starlette and imports app/pdf_engine.py for limits/errors, app/upload_limits.py for ingress, app/toolkit.py for the registry, app/gotenberg.py for DOCX validation, and app/worker.py for execution. Static files live inside the app package.
+
+PDF path: app/worker.py invokes app/toolkit.py (or routes to the private worker_service.py), and app/toolkit.py uses pypdf plus app/pdf_engine.py for merge and app/page_decorations.py for numbers, watermark and visual crop. Decorations use ReportLab and Pillow. Cryptography supports the pypdf AES-256 protect/unlock path.
+
+Office path: app/gotenberg.py validates DOCX ZIP metadata, sends it to the configured internal Gotenberg 9 service and verifies the returned PDF through pypdf. compose.yaml sets PDFSTUDIO_WORKER_URL for API and PDFSTUDIO_GOTENBERG_URL for the worker. Dockerfile packages only the app. No external API key, database, queue or cloud account is required by the present prototype.
+
+Contributor path: .github/workflows/ci.yml calls scripts/ci_guard.py, scripts/ci_feedback.py, scripts/check_mutations.py, smoke scripts and the tests/ tree; ci/required-tests.json controls minimum/critical test collection. Several scripts use fixed app/, tests/ and docs/ paths. That is why active modules and contributor guide paths were not moved while tests were deferred.
+
+Inactive upstream trees under AnalyseFuture/upstream-reference-snapshots/ have their own internal package manifests and source imports. They are not installed, imported by app, copied into Docker images, or approved as dependencies by this restructuring. COMPLETE_FILE_INVENTORY.txt records a bounded observed-import sample for every tracked source file to help later focused review; it is not a transitive license or security audit.

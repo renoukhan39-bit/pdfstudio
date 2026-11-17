@@ -8,7 +8,7 @@
 
 **Guiding strategy:** **Reuse proven components, don't rebuild mature engines.** Own the original product experience and integration architecture; respect the copyright and licenses of all third-party software.
 
-**Full list of every public repository discussed:** [PUBLIC_PDF_REPOSITORIES.txt](PUBLIC_PDF_REPOSITORIES.txt) — a study/integrate/avoid catalog with license cautions and the A–D only implementation order.
+**Full list of every public repository discussed:** [public repository research](docs/research/PUBLIC_PDF_REPOSITORIES.txt) — a study/integrate/avoid catalog with license cautions and the A–D only implementation order. See [project structure](PROJECT_STRUCTURE.md) for the active code and preserved upstream snapshots.
 
 ## Start here
 
@@ -24,7 +24,7 @@
 
 ## Current work scope: A–D only
 
-Stage E/F implementation is **on hold**. We are preserving the existing 14-tool prototype and selectively integrating tested public engines. [Active Scope and Upstream Decisions](docs/ACTIVE-SCOPE.md).
+Stage E/F implementation is **on hold**. We are preserving the existing 15-tool prototype and selectively integrating tested public engines. [Active Scope and Upstream Decisions](docs/ACTIVE-SCOPE.md).
 
 DOCX-to-PDF is now available in the prototype interface using an internal Gotenberg 9 service. The Docker Compose CI verifies a real conversion. This is **not yet production-ready**; more complex Office documents need a larger fidelity corpus.
 
@@ -56,7 +56,7 @@ The [Feature Inventory](docs/FEATURE-INVENTORY.md) records goals and priorities.
 
 ## Prototype: get it running
 
-This repository now has a small **FastAPI + pypdf merge tool** and responsive no-build frontend. It is **not production-ready**. It deliberately avoids importing entire third-party PDF apps. See [Detailed prototype instructions](docs/PROTOTYPE.md).
+This repository has a 15-tool **FastAPI + pypdf prototype** and responsive no-build frontend. It is **not production-ready**. Third-party source snapshots are preserved for study under `AnalyseFuture/` and are not imported into the application. See [Core Toolkit](docs/CORE-TOOLKIT.md) and [Deployment](docs/DEPLOYMENT.md).
 
 ~~~bash
 git clone https://github.com/renoukhan39-bit/pdfstudio.git
@@ -68,7 +68,7 @@ uvicorn app.main:app --reload
 # open http://127.0.0.1:8000
 ~~~
 
-Run tests: `python -m pytest -q`. **Fifteen PDF tools are now implemented as prototypes:** merge, split, extract, delete, reorder, rotate, compress, edit metadata, extract text, AES-256 protection known-password unlock, page numbers, text watermarks and visual cropping. [Toolkit guide](docs/CORE-TOOLKIT.md). The merge API is `POST /api/tools/merge`; merge 2–10 PDFs, 8 MB each, 200 pages maximum. Raw uploads are limited before multipart parsing. See [CI and contributor checks](docs/CI.md) for matrix tests, coverage, lint, packaging and security scans, and [Implementation Status](docs/IMPLEMENTATION-STATUS.md) for exact verification evidence. **This remains a prototype; production worker isolation is not implemented.**
+Run tests: `python -m pytest -q`. **Fifteen tools are implemented as prototypes:** merge, split, extract, delete, reorder, rotate, compress, edit metadata, extract text, AES-256 protection and known-password unlock, page numbers, text watermarks, visual cropping, and DOCX-to-PDF conversion. [Toolkit guide](docs/CORE-TOOLKIT.md). The merge API is `POST /api/tools/merge`; merge 2–10 PDFs, 8 MB each, 200 pages maximum. Raw uploads are limited before multipart parsing. See [CI and contributor checks](docs/CI.md) for matrix tests, coverage, lint, packaging and security scans, and [Implementation Status](docs/IMPLEMENTATION-STATUS.md) for dated verification evidence. **This remains a prototype; the isolated Compose worker is a development baseline, not a public deployment approval.**
 
 **Plan before coding more:** [Complete Ordered Checklist](docs/IMPLEMENTATION-CHECKLIST.md) · [Live Implementation Status](docs/IMPLEMENTATION-STATUS.md) · [Known Blockers](docs/IMPLEMENTATION-STATUS.md#blockers-requiring-ownercodex-follow-up).
 
@@ -90,5 +90,5 @@ Read [Contributing](CONTRIBUTING.md), [Security](SECURITY.md), [Code of Conduct]
 
 ## Documentation index
 
-[Implementation Checklist](docs/IMPLEMENTATION-CHECKLIST.md) · [Implementation Status](docs/IMPLEMENTATION-STATUS.md) · [Prototype](docs/PROTOTYPE.md) · [Start Here](docs/START-HERE.md) · [Vision](docs/PRODUCT-VISION.md) · [Competitive Benchmarks](docs/COMPETITIVE-BENCHMARKS.md) · [Feature Inventory](docs/FEATURE-INVENTORY.md) · [Architecture](docs/ARCHITECTURE.md) · [Reuse vs Build](docs/REUSE-VS-BUILD.md) · [Licenses](docs/LICENSING-AND-DEPENDENCIES.md) · [Roadmap](docs/ROADMAP.md) · [Backlog](docs/IMPLEMENTATION-BACKLOG.md) · [UX](docs/UX-BLUEPRINT.md) · [Quality](docs/QUALITY-AND-TESTING.md) · [API/Data](docs/API-AND-DATA-CONTRACTS.md) · [Operations](docs/OPERATIONS-AND-SECURITY.md) · [Codex](docs/CODEX-PLAYBOOK.md) · [Research Links](docs/RESEARCH-REFERENCES.md) · [Decisions](docs/DECISIONS.md).
+[Project Structure](PROJECT_STRUCTURE.md) · [Implementation Checklist](docs/IMPLEMENTATION-CHECKLIST.md) · [Implementation Status](docs/IMPLEMENTATION-STATUS.md) · [Prototype](docs/PROTOTYPE.md) · [Start Here](docs/START-HERE.md) · [Vision](docs/PRODUCT-VISION.md) · [Competitive Benchmarks](docs/research/COMPETITIVE-BENCHMARKS.md) · [Feature Inventory](docs/FEATURE-INVENTORY.md) · [Architecture](docs/ARCHITECTURE.md) · [Reuse vs Build](docs/REUSE-VS-BUILD.md) · [Licenses](docs/LICENSING-AND-DEPENDENCIES.md) · [Roadmap](docs/ROADMAP.md) · [Backlog](docs/IMPLEMENTATION-BACKLOG.md) · [UX](docs/UX-BLUEPRINT.md) · [Quality](docs/QUALITY-AND-TESTING.md) · [API/Data](docs/API-AND-DATA-CONTRACTS.md) · [Operations](docs/OPERATIONS-AND-SECURITY.md) · [Codex](docs/CODEX-PLAYBOOK.md) · [Research Links](docs/research/RESEARCH-REFERENCES.md) · [Decisions](docs/DECISIONS.md).
 

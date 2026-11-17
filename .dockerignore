@@ -15,4 +15,5 @@ reports
 .coverage
 .ruff_cache
 *.egg-info
+AnalyseFuture
 

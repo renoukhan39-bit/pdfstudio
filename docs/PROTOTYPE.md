@@ -1,4 +1,4 @@
-> Updated: the prototype now includes eleven tools. See [Core Toolkit](CORE-TOOLKIT.md) for current functionality, routes and limits. The historical merge setup below still works.
+> Historical merge proof-of-concept guide. The current prototype exposes 15 tools; see [Core Toolkit](CORE-TOOLKIT.md) for current functionality, routes and limits, and [Deployment](DEPLOYMENT.md) for the isolated development stack. The historical merge setup below still works for local PDF operations.
 
 # Running the First PDF Studio Prototype
 

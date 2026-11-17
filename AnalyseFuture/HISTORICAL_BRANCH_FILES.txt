@@ -1,0 +1,13 @@
+REMOTE BRANCH FILES NOT PRESENT ON STARTING MAIN
+All nine remote branch heads were fetched. The branch and recovery bundle retain the full implementation/history.
+Unique paths are listed below; unchanged or changed paths on those branches are discussed in REPOSITORY_AUDIT.txt.
+
+remote_ref	head_sha	path_unique_to_ref_vs_main
+origin/docs/project-continuity	098ef062f7cc8e858665b95270898edea512ebaa	CONTINUITY.md
+origin/docs/project-continuity	098ef062f7cc8e858665b95270898edea512ebaa	docs/CHAT-ARCHIVE-2026-11-16.md
+origin/docs/project-continuity	098ef062f7cc8e858665b95270898edea512ebaa	docs/PROJECT-CONTINUITY.md
+origin/docs/project-continuity	098ef062f7cc8e858665b95270898edea512ebaa	docs/PROJECT-CONTINUITY.rtf
+origin/feat/pptx-to-pdf-gotenberg	4de25046f37ea214257b01ae7b23dd6a30fcfa30	docs/PPTX-MILESTONE-AUDIT.md
+origin/feat/pptx-to-pdf-gotenberg	4de25046f37ea214257b01ae7b23dd6a30fcfa30	docs/RESEARCH-TOP-2.md
+origin/feat/pptx-to-pdf-gotenberg	4de25046f37ea214257b01ae7b23dd6a30fcfa30	scripts/office_fixtures.py
+origin/feat/pptx-to-pdf-gotenberg	4de25046f37ea214257b01ae7b23dd6a30fcfa30	scripts/pptx_smoke.py

@@ -1,0 +1,20 @@
+ARCHIVED FILES MANIFEST
+
+All 10,402 files below moved from reference-archives/<collection>/... to AnalyseFuture/upstream-reference-snapshots/<collection>/... at identical relative paths. The 10,401 upstream files kept their original Git blobs; the archive README gained a location and security note. Their replacement in the active app is none: they were never active imports. Original archive ZIP SHA-256 values and extraction notes remain in upstream-reference-snapshots/README.md; Git history retains the original ZIP uploads and the extracted-file commits.
+
+Collection                    Files  Role and reason retained outside active app
+OCRmyPDF-main                  578  MPL-2.0 OCR upstream source/tests; Stage D candidate, no current OCR adapter.
+gotenberg-main                 564  MIT Gotenberg server source/tests; product uses a container image/API, not this Go tree.
+issue6286                       25  PDF fixture set with unrecorded license/provenance; no active test consumes it.
+pdf-lib-master                 759  MIT browser PDF library source/assets; Stage C evaluation only.
+pdf.js-master                 2716  Apache-2.0 viewer source/assets/tests; Stage C candidate, not installed.
+pdfnme-main                   1144  MIT pdfme source, includes pdf-lib copy; optional templates candidate.
+pyHanko-master                1442  MIT signing source/test fixtures; late Stage D candidate.
+qpdf-main                     2906  Apache-2.0 processing source/test assets; no active integration.
+website                        267  pdfme website/generator subset; lacks its own ZIP license file and overlaps pdfme snapshot.
+Archive README                   1  Original archive hashes and extraction manifest, moved with the collection.
+TOTAL                        10402
+
+License labels are upstream root-file observations, not complete transitive or commercial-distribution approval. The collection includes bundled fonts, test keys, PDFs and nested workflow files. Keep it excluded from product builds and deployments. If any fixture is later judged sensitive, moving it here does not erase historic Git exposure; involve the owner in remediation.
+
+The separate eight paths unique to two remote feature/documentation branches were not archived or deleted; those branches and the verified external Git bundle preserve them. HISTORICAL_BRANCH_FILES.txt lists them. Local ignored build reports and virtual environments are generated artifacts, not tracked source and not part of this manifest.

@@ -1,0 +1,13 @@
+TECHNICAL DEBT AND RELEASE LIMITS
+
+Priority 1 — Establish trustworthy current checks. This restructuring intentionally ran no tests. A later authorized validation pass should run python scripts/check.py, its full mode, a clean package smoke, Docker Compose isolation, real DOCX conversion and browser journey, then inspect the latest GitHub CI required result. The branch protection API could not be confirmed; CODEOWNERS alone does not enforce reviews.
+
+Priority 2 — Lock and review dependencies. Direct Python requirements are pinned in pyproject.toml but transitives are unlocked; Gotenberg uses a floating :9 image tag. Record approved image digest, license obligations, SBOM and vulnerability status. No dependency or application logic changed here.
+
+Priority 3 — Production security. The current isolated Compose worker is a development baseline. Public service requires authenticated TLS ingress, global quotas, stronger hostile-PDF isolation, retention/deletion policy, container updates and observability. Local uvicorn mode is less isolated. DOCX archive validation uses ZIP metadata and cannot alone establish safety of arbitrary Office content.
+
+Priority 4 — Source provenance. Upstream snapshot trees contain private-key test fixtures, sample PDFs, fonts, licenses and nested workflows. The issue6286 set lacks embedded provenance. A full rights/privacy review is required before commercial redistribution or reuse; no upstream source was imported into app. The project's original-code license and contribution terms remain owner decisions.
+
+Priority 5 — Documentation consistency. README and START-HERE now identify 15 tools; historical PROTOTYPE and IMPLEMENTATION-STATUS sections still intentionally describe earlier milestones and are labeled as such. Some roadmap prose is aspirational. Keep feature status tied to output verification and avoid claiming shipped capabilities. Fix outdated counts in future edits only with verified source evidence.
+
+Priority 6 — Scoped future features. A remote PPTX branch exists but is unmerged and not validated in this task. Native existing-text editing, OCR, secure redaction, certificate signing, PDF/A and accessibility need separate engine/license/fidelity decisions. AI, accounts, billing, teams and broad automation remain frozen by docs/ACTIVE-SCOPE.md despite their appearance in the long-term catalog.

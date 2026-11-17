@@ -1,0 +1,11 @@
+PDF STUDIO DUPLICATE AND OVERLAP ANALYSIS
+
+The active app has one PDF tool registry (app/toolkit.py), one API entrypoint (app/main.py), one private worker service, and one Gotenberg adapter. app/pdf_engine.py owns merge; app/page_decorations.py owns page overlays/crop; app/toolkit.py composes them. Their overlap is shared execution, not independent duplicate implementations. Moving or collapsing them would obscure ownership and break imports and six path-specific mutation probes, especially while tests are intentionally deferred.
+
+Upstream snapshots contain genuine duplication. The pdfnme-main archive is a pdfme snapshot with a bundled pdf-lib copy; pdf-lib-master is a separate upstream snapshot. website.zip contributed a website/generator subset overlapping the pdfme collection. Identical Git blob IDs appear in 107 content groups spanning snapshot collections. The copies were retained because the original archives and provenance differ; deleting one would violate the preservation request and could erase evidence of which snapshot supplied a file.
+
+Historical versions of status and prototype guidance in docs/ overlap newer guidance. The original PROTOTYPE.md is now explicitly labeled historical, while CORE-TOOLKIT.md identifies the active 15-tool contract. IMPLEMENTATION-STATUS.md is retained as dated evidence instead of replacing it with unsupported current claims. The README and START-HERE status counts were corrected to 15.
+
+The 95-ID feature catalog has conceptual overlap: AI-07 and CV-11 both describe PDF-to-Markdown, while WF-01 is a workspace capability rather than another PDF tool. Neither has a duplicate active implementation. PPTX conversion exists only on an unmerged remote branch and is recorded as experimental, not combined into main.
+
+Consolidation decision: group research files and inactive snapshots by purpose, preserve their exact contents, and keep the functioning app/test/CI layout stable. No active code files were merged or overwritten.

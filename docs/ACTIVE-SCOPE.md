@@ -4,7 +4,7 @@
 
 ## Reuse-first, no big-bang repo merge
 
-The main product remains [this repository](https://github.com/renoukhan39-bit/pdfstudio), with 14 existing prototype tools and strong CI. Do not replace it with another complete website. Source from each upstream only after checking its exact commit, transitive licenses, security, activity, maintenance and output tests.
+The main product remains [this repository](https://github.com/renoukhan39-bit/pdfstudio), with 15 existing prototype tools and contributor CI. Do not replace it with another complete website. Source from each upstream only after checking its exact commit, transitive licenses, security, activity, maintenance and output tests.
 
 | Source | Decision | A–D use | Not for |
 | --- | --- | --- | --- |
@@ -24,8 +24,8 @@ The main product remains [this repository](https://github.com/renoukhan39-bit/pd
 ## Ordered actions
 
 1. **A:** Protect current main branch; settle original-code licensing, lock dependencies, maintain security and regression coverage.
-2. **B:** Complete Gotenberg DOCX-to-PDF spike with real isolated Compose conversion tests. Keep current 14 tools unchanged.
-3. **B:** Add successful conversion to the interface; expand to PPTX/XLSX/HTML only after tests.
+2. **B:** Maintain the existing Gotenberg DOCX-to-PDF Compose prototype and its isolated conversion checks.
+3. **B:** Expand the conversion interface to PPTX/XLSX/HTML only after separate output and security tests.
 4. **B:** Finish missing image and page tools; use existing pypdf first, Gotenberg for demonstrated gaps.
 5. **C:** Build PDF.js-based viewer and editing shell, then annotations, forms and signatures.
 6. **C:** Choose the licensed native-content editor approach and prove text actually changes.

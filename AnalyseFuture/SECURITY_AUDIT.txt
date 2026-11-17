@@ -1,0 +1,14 @@
+PDF STUDIO STATIC SECURITY AUDIT
+
+Starting commit: a2b4a2c. Static inspection only; no application, dependency, container or test execution was performed in this restructuring.
+
+Confirmed repository facts:
+- Active API and worker are separate modules. UploadLimitMiddleware bounds raw request bytes/time and active uploads. Worker code enforces local child-process limits or uses a configured private worker; it disables environment proxies and redirects for document transport. Compose gives the worker an internal network, read-only root, dropped capabilities and resource bounds. These are development controls, not public-service approval.
+- Previous main imported 10,402 inactive upstream snapshot paths into reference-archives. Their tree contains 2,141 PDFs, 42 nested upstream workflow files, 91 private-key-like filenames, 604 PEM/CRT filenames and one Gotenberg .env example. A content scan found PEM private-key blocks in 79 files (78 pyHanko test fixtures, one Gotenberg test fixture). The .env example defines build-related variable names, not a new runtime binding. This audit did not expose file contents or establish that any key is live.
+- The 25 PDFs in issue6286 have no embedded archive license or provenance record. Copyright, privacy and license clearance for redistribution remain unresolved. Historical Git commits already contain these snapshots. Moving their current paths does not erase history or restrict Git access.
+- A nested .github folder inside an archived upstream collection is not an active workflow at the repository root. A code search found no app/tests/scripts/CI import from reference-archives. The new .dockerignore exclusion prevents AnalyseFuture contents entering Docker build context; pyproject.toml still packages only app*.
+- Root CI workflow uses read-only contents permission and required aggregate jobs in the inspected YAML. CODEOWNERS requests review; actual branch-rule enforcement was not verifiable through the API.
+
+Unresolved risks: exact upstream license and bundled font/model/fixture rights are not fully audited; prior commit authorship does not prove authorization; private-key fixtures must never be treated as product credentials; native PDF processing still needs stronger production isolation, authentication, TLS, rate limits, global quotas and retention controls. No confirmed live credential exposure or malicious active code was established by this static audit. Do not infer a clean security bill from that limited result.
+
+No secrets were copied into new documentation. If an owner determines any historical fixture is sensitive, investigate and rotate affected credentials through the appropriate owner process before considering history remediation; this restructuring never rewrites published history.

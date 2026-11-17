@@ -1,0 +1,11 @@
+NEXT DEVELOPER INSTRUCTIONS
+
+Start with /workspace/pdfstudio/PROJECT_STRUCTURE.md, README.md, AGENTS.md, docs/ACTIVE-SCOPE.md, docs/CORE-TOOLKIT.md and docs/DEPLOYMENT.md. This is a PDF Studio prototype; AI capabilities are only a future roadmap and are currently frozen. Inspect AnalyseFuture/WORK_PROGRESS.txt and the migration report before changing paths.
+
+The active package is app/. Keep test path relationships in tests/, scripts/check_mutations.py, scripts/ci_guard.py and .github/workflows/ci.yml synchronized if refactoring modules. The archive under AnalyseFuture/upstream-reference-snapshots/ is study material; it contains licenses, test private keys and many PDFs. Do not run or import it as application code. .dockerignore excludes it from Docker build context.
+
+The owner requested no tests during this restructuring. When authorized to validate, use the existing pinned environment and run python scripts/check.py, then full contributor checks and the Docker/Chromium/Gotenberg smoke flow described in docs/CI.md and docs/DEPLOYMENT.md. Inspect exact command outcomes and GitHub's CI required check before declaring runtime readiness. Do not treat the static file/link checks in this task as application tests.
+
+The unmerged origin/feat/pptx-to-pdf-gotenberg branch has experimental converter code, tests and four unique files. The origin/docs/project-continuity branch has four unique documentation files. Both remain on remote and in the external Git bundle; compare them to current main before selectively integrating anything. No branch was reset, rebased or deleted.
+
+Next focused decisions: review repository rules and current CI; lock/audit transitives and Gotenberg image; examine upstream fixture provenance/licenses; decide the next A-D feature with output tests. Keep original-code license, pricing and restricted engine choices with the owner. Do not implement Stage E/F work without an explicit scope change.

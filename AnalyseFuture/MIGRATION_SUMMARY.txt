@@ -1,0 +1,9 @@
+MIGRATION SUMMARY
+
+Starting main: a2b4a2c66e1a5657433625232d2611603650f18e. Default branch: main. Starting tracked paths: 10,473. Backup: verified /workspace/.pdfstudio-recovery/pre-restructure.bundle outside the checkout. No extra branch or pull request was created.
+
+Moves: 10,402 reference snapshot paths to AnalyseFuture/upstream-reference-snapshots/ and three research files to docs/research/ (10,405 moved starting paths). Of these, 10,404 kept identical Git blobs; the archived README gained context. Active Python, frontend, tests, scripts, CI, Dockerfile, Compose and pyproject paths are retained. No active implementation files were merged or deleted. New recovery reports, feature/file inventories and PROJECT_STRUCTURE.md explain the final layout.
+
+References changed: README and START-HERE links to relocated research documents; current 15-tool status in README, START-HERE and ACTIVE-SCOPE; root AGENTS current Gotenberg status; historical status banner in PROTOTYPE and IMPLEMENTATION-STATUS. Docker context now excludes AnalyseFuture, and CODEOWNERS requests review for archived material. Runtime imports and API routes were unchanged.
+
+Static review: every one of the 10,473 starting tracked files has a staged destination, with zero Git mode changes and zero active app/scripts/tests source changes. 10,404 moves retained identical blobs; the archived README was annotated. All 131 scanned local Markdown links resolve, all three archived symlinks remain internal, AnalyseFuture is excluded from Docker build context, and new reports have no private-key/token marker matches. The staged documentation diff has no whitespace errors. Tests were deliberately not run. Direct main delivery and the final SHA are confirmed in the final response and Git history.

@@ -1,0 +1,45 @@
+PDF STUDIO — EVIDENCE-BASED PROJECT VISION AND FUTURE ROADMAP
+
+Status vocabulary: VERIFIED PRIOR = exercised in an earlier onboarding/CI record, not re-tested in this restructuring. PROTOTYPE = code exists on main. PLANNED = documented target without main implementation. EXPERIMENTAL = unmerged branch or research. FROZEN = Stage E/F requires an explicit owner scope change. SPECULATIVE = depends on research or uncertain economics. No feature is called SHIPPED here.
+
+1. What the project currently is. PDF Studio is a no-build browser interface served by a FastAPI API with 15 registered prototype tools. Fourteen operate on PDFs using pypdf and supporting Python packages; DOCX-to-PDF uses an internal Gotenberg 9 adapter in Docker Compose. A bounded worker and upload limits exist. The product is not a hardened public service.
+
+2. Original intent. README, PRODUCT-VISION and FEATURE-INVENTORY describe an independent, commercially viable PDF workspace with professional editing, reliable conversion, OCR, forms, signing, redaction and later optional AI and collaboration. This intent is broader than current code. The A-D scope document freezes later E/F work.
+
+3. Implemented work. The prototype registry covers merge, split, extract, delete, reorder, rotate, compress, metadata, text extraction, protect, unlock, page numbers, text watermark, visual crop, and DOCX conversion. Browser reuse of a result within a session and responsive layout are partial platform capabilities. The exact paths and existing tests appear in FEATURE_INVENTORY.txt.
+
+4. Current value. A user can perform common bounded PDF transformations and keep a result for a next step without reuploading. Output PDFs are inspected in existing tests and smoke scripts. Honest labeling distinguishes visual crop from secure redaction, password encryption from digital signatures, and extracted text from OCR.
+
+5. Missing capabilities. Native editing of existing PDF text, a full viewer/editor, OCR, certified signing, secure redaction, high-fidelity PDF-to-Office conversion, forms, PDF/A, a production storage/auth model and broad accessibility validation are not implemented on main. The catalog records 95 targets, only 15 of them registered PDF/DOCX tool prototypes.
+
+6. Improve immediately (Stage A). Re-enable and observe a required GitHub check after this structure migration; lock Python transitive dependencies, pin a Gotenberg image digest, document attribution, decide original-code licensing and confirm branch rules. These are prerequisites for trustworthy future feature work, not UI features.
+
+7. Build next (Stage B). Expand the tested Gotenberg adapter one conversion at a time, beginning with a bounded PPTX or XLSX fixture set if the unmerged PPTX branch survives review. Verify textual and visual output, page limits, private-network routing and failure behavior. Do not merge the whole experimental branch or duplicate the Gotenberg server source.
+
+8. Significant product gains (Stages B-C). Improve the browser workspace with previews, clearer operation limits, keyboard/accessibility work and stable result reuse. A PDF.js viewer could provide page rendering, thumbnails, selection and search; it would not by itself deliver native content editing. Keep pypdf operations as service adapters and add specialized engines only when an output gap is demonstrated.
+
+9. Advanced capabilities worth exploring (Stages C-D). Annotation/form round trips, page-object editing, OCR/deskew, PDF/A, secure byte-removing redaction and certificate-backed signatures are relevant. Each needs a separate contract, exact engine/license decision, synthetic and realistic fixtures, security limits and user-visible fidelity statement.
+
+10. AI possibilities (FROZEN E/F). Document-grounded chat with citations, summaries, translation and table/entity extraction might help users handle long files. They need retrieval quality measures, privacy consent, data retention choices, model evaluation, prompt-injection defenses and cost controls. None should be scaffolded or advertised as available under the current A-D freeze.
+
+11. Technologies to research. Evaluate PDF.js viewer builds and licenses, pypdf limits, Gotenberg exact patch/digest, OCRmyPDF, qpdf, pyHanko and a genuinely licensed native-content editor SDK. The preserved upstream snapshots are study copies, not dependencies. Record transitive licenses and bundled font/model/fixture rights before product use.
+
+12. Realistically buildable now. With one focused owner-approved slice, the current Python/Compose architecture can support additional page operations and bounded Office-to-PDF routes. A component-level PDF.js viewer prototype is plausible. Each slice still needs CI, actual output reopening, threat limits and accessibility review before product claims change.
+
+13. Feasible with more resources. Native underlying-text editing with font/layout fidelity, broad multilingual OCR, high-quality reverse PDF-to-Office conversion and robust signed-document handling may require paid SDKs, a larger fixture corpus, dedicated infrastructure and legal review. Success cannot be inferred from a single PDF example.
+
+14. Currently impractical for this prototype. Claiming universal lossless PDF editing, guaranteed OCR accuracy across languages, secure redaction via visual overlays or fully faithful editable reverse conversion would be misleading. Do not promise exact parity with mature proprietary products without evidence and sustained maintenance investment.
+
+15. Research/infrastructure dependencies. A public service needs TLS, authentication, tenant isolation, rate limits/global quotas, more robust hostile-file sandboxing, observability, incident response, retention/deletion controls and container scanning. A future AI service additionally needs explicit data processing policies and evaluation infrastructure.
+
+16. One-year horizon (roughly 2027, conditional). Establish reproducible locked builds and security gates, mature the 15 prototypes against real-world but non-confidential fixture classes, validate one or two additional converters, and start a viewer/editor shell. Scope to a staffed, tested A-D roadmap rather than broad feature-count claims.
+
+17. Two-year horizon (roughly 2028, conditional). If licensing and engineering budget permit, provide credible annotations/forms, OCR and secure redaction with measured fidelity. Evaluate certificate signatures and accessibility output. Public launch should follow documented production controls, not calendar dates.
+
+18. Three-to-five-year horizon (roughly 2029-2031, speculative). A mature cross-platform document workspace could add versioned document flows, automation, collaboration and privacy-aware AI only after an explicit E/F owner decision and proven economics. Long-term competitive strength would come from reliable output and transparent limitations rather than an undifferentiated tool count.
+
+19. Work not to pursue now. Do not import complete public PDF websites, copy proprietary competitors, add AGPL/noncommercial engines without approved licensing, implement accounts/billing/teams/AI under the current freeze, or replace tested basic tools merely because another codebase exists. Do not delete archived research without provenance review.
+
+20. Defensible long-term advantages. Build trust through accurate output verification, continuity of user workflow, privacy controls, interoperability, honest capability labels, multilingual/accessibility quality and measurable performance. These advantages require ongoing fixtures, reviews and maintenance; they are goals, not existing claims.
+
+Roadmap decision gates: first restore reliable CI and dependency provenance; then add one conversion/viewer slice with output and isolation evidence; then expand editor/OCR/signing only after license and fidelity review. Product/legal/hosting decisions remain with the owner. This document is a future vision, not an authorization to change the A-D freeze.

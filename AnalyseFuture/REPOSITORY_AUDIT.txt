@@ -1,0 +1,20 @@
+PDF STUDIO REPOSITORY AUDIT
+
+Repository: https://github.com/renoukhan39-bit/pdfstudio
+Default branch advertised by origin: main
+Starting main: a2b4a2c66e1a5657433625232d2611603650f18e
+Starting worktree: clean, on main. Starting tracked paths: 10,473.
+History: 21 linear main commits. Nine remote branch heads were fetched; no tags were advertised. A verified 644 MiB Git bundle containing main and all fetched remote refs is retained outside the checkout at /workspace/.pdfstudio-recovery/pre-restructure.bundle. It is not another branch and is not part of the Git push.
+
+Tree classification before moves:
+- 10,402 paths under reference-archives/: nine extracted upstream/fixture collections plus their manifest README. Their source, test fixtures, nested .github files and test keys were not imported into app/.
+- 71 paths outside the snapshots: 12 app files, 7 tests, 8 scripts, 24 docs, 5 root .github files, 1 ci manifest and 14 conventional root files/configuration files. COMPLETE_FILE_INVENTORY.txt records every path, Git blob, purpose classification, dependency relationship and destination.
+- Ignored local artifacts included .venv, reports, dist and Python caches; they are generated setup/check outputs, not source to reorganize or commit.
+
+Active architecture: same-origin no-build UI -> FastAPI API/raw upload limits -> local bounded child or private Compose worker -> pypdf tool dispatcher or Gotenberg DOCX converter. CI runs quality, Python matrix, package, dependency audit, container, isolation/browser and guardrail jobs. pyproject.toml packages app* only. No active duplicate app or disconnected copy on current main was identified.
+
+Remote branches retained without rewriting: four Dependabot heads, docs/all-public-pdf-repos-and-safe-upgrades, docs/project-continuity, feat/stages-a-d-reuse-first and feat/pptx-to-pdf-gotenberg. The last branch contains experimental PPTX changes to existing active modules plus four unique files; it was not merged without validation. The continuity branch contains four unique files. HISTORICAL_BRANCH_FILES.txt lists unique paths; the Git bundle preserves complete branch content.
+
+The main history shows the PDF prototype, worker isolation, DOCX conversion, dependency updates, three ZIP-upload commits and two later extraction commits. Different commit authors appear on the upload commits, but commit history alone does not establish unauthorized access or compromise. No branch/tag was deleted and no history was rewritten. Branch protection settings could not be confirmed through the GitHub API; earlier direct main pushes were accepted.
+
+No .gitmodules or root .gitattributes was found. No submodule checkout was identified; LFS use was not established by this audit. See SECURITY_AUDIT.txt and TEST_AND_VALIDATION_REPORT.txt for limits.
