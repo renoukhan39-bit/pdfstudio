@@ -1,0 +1,844 @@
+{\rtf1\ansi\deff0{\fonttbl{\f0 Arial;}{\f1 Courier New;}}\paperw12240\paperh15840\margl900\margr900\margt900\margb900\fs22
+\par\b\fs36 PDF Studio - Project Continuity / AI Handoff\b0\fs22\par
+\par
+> Purpose: This is the durable continuity document for PDF Studio. Future ChatGPT, Codex, Copilot, Claude, Gemini, or human contributors should read this file before making architecture or implementation decisions.\par
+>\par
+> Snapshot date: 2026-11-16 (Asia/Kolkata)\par
+>\par
+> Repository: https://github.com/renoukhan39-bit/pdfstudio\par
+>\par
+> Important: This file summarizes the visible project/chat context and verified repository evidence available at the snapshot date. It does not contain hidden chain-of-thought/private scratchpad. Some older chats are available only as project excerpts rather than complete transcripts; those limitations are recorded below.\par
+>\par
+> Maintenance rule: When a milestone PR merges, an engine/version changes, a major decision is accepted, or scope changes, update this file and the session archive.\par
+\par
+---\par
+\par
+\par\b\fs30 1. Executive project state\b0\fs22\par
+\par
+PDF Studio is an independently branded PDF platform under active development. The current product is a working prototype, not a finished commercial service.\par
+\par
+\par\b\fs26 Authorized scope\b0\fs22\par
+\par
+Only Stages A-D are authorized:\par
+\par
+- Stage A: engineering foundation, safety, isolation, CI, reproducibility.\par
+- Stage B: core PDF utilities and document conversions.\par
+- Stage C: viewer and professional editor capabilities.\par
+- Stage D: OCR, signing, secure redaction, advanced/professional operations.\par
+\par
+Stages E and F are frozen. Do not implement AI PDF chat, AI summarization, AI translation, subscriptions/billing, user accounts, enterprise organizations, collaboration, cloud document history, or large automation platforms unless the owner explicitly changes scope.\par
+\par
+\par\b\fs26 Current implementation snapshot\b0\fs22\par
+\par
+On main at the beginning of the PPTX milestone, PDF Studio had:\par
+\par
+- FastAPI backend.\par
+- pypdf-based PDF toolkit.\par
+- 15 prototype tools including DOCX-to-PDF.\par
+- Basic HTML/CSS/JavaScript frontend.\par
+- Internal processing worker.\par
+- Gotenberg 9 conversion service.\par
+- Docker Compose deployment.\par
+- Pytest and GitHub Actions.\par
+- Playwright browser smoke tests.\par
+- Upload validation/resource limits.\par
+- Private worker/Gotenberg network.\par
+\par
+The PPTX milestone is implemented in open PR #19, which raises the tool count to 16 tested prototype tools when merged.\par
+\par
+\par\b\fs26 Live work at this snapshot\b0\fs22\par
+\par
+- PR #19: PPTX-to-PDF via existing private Gotenberg worker\par
+  https://github.com/renoukhan39-bit/pdfstudio/pull/19\par
+- PR #19 final head: 4de25046f37ea214257b01ae7b23dd6a30fcfa30\par
+- Final CI: run #54, all required jobs passed\par
+  https://github.com/renoukhan39-bit/pdfstudio/actions/runs/43745920531\par
+- Unrelated open PR #8: Dependabot Python base image 3.12-slim -> 3.15-slim\par
+  https://github.com/renoukhan39-bit/pdfstudio/pull/8\par
+  Do not merge automatically just because it is open.\par
+\par
+Before acting on any live status, verify GitHub again because this document is a point-in-time snapshot.\par
+\par
+---\par
+\par
+\par\b\fs30 2. Source-of-truth documents\b0\fs22\par
+\par
+Read these before major changes:\par
+\par
+1. AGENTS.md\par
+2. README.md\par
+3. PUBLIC_PDF_REPOSITORIES.txt\par
+4. docs/START-HERE.md\par
+5. docs/ACTIVE-SCOPE.md\par
+6. docs/ARCHITECTURE.md\par
+7. docs/IMPLEMENTATION-CHECKLIST.md\par
+8. docs/IMPLEMENTATION-STATUS.md\par
+9. docs/IMPLEMENTATION-BACKLOG.md\par
+10. docs/CORE-TOOLKIT.md\par
+11. docs/REUSE-VS-BUILD.md\par
+12. docs/LICENSING-AND-DEPENDENCIES.md\par
+13. docs/QUALITY-AND-TESTING.md\par
+14. docs/CODEX-PLAYBOOK.md\par
+15. docs/CI.md\par
+16. docs/DECISIONS.md\par
+17. docs/FEATURE-INVENTORY.md\par
+18. docs/PPTX-MILESTONE-AUDIT.md - added by PR #19.\par
+19. docs/RESEARCH-TOP-2.md - added by PR #19.\par
+20. This file: docs/PROJECT-CONTINUITY.md.\par
+21. docs/CHAT-ARCHIVE-2026-11-16.md - visible chat/session archive.\par
+\par
+When documentation disagrees with current source, current source + passing CI evidence wins; then correct the stale documentation.\par
+\par
+---\par
+\par
+\par\b\fs30 3. Implemented architecture map\b0\fs22\par
+\par
+\par\b\fs26 Current implemented request path\b0\fs22\par
+\par
+flowchart LR\par
+    A[Browser<br/>HTML/CSS/JS] --> B[FastAPI app/main.py]\par
+    B --> C[Raw body + upload limits<br/>app/upload_limits.py]\par
+    C --> D[Format / request validation]\par
+    D --> E[app.worker.execute]\par
+    E --> F[Private worker service<br/>app/worker_service.py]\par
+    F --> G[Bounded child process]\par
+    G --> H\{Operation engine\}\par
+    H -->|Core PDF tools| I[pypdf toolkit<br/>app/toolkit.py]\par
+    H -->|DOCX/PPTX conversion| J[Gotenberg adapter<br/>app/gotenberg.py]\par
+    J --> K[Private Gotenberg 9<br/>LibreOffice]\par
+    I --> L[Output validation]\par
+    K --> L\par
+    L --> M[FastAPI response]\par
+    M --> N[Browser download]\par
+    N --> O[Optional<br/>Use result in another tool]\par
+\par
+\par
+\par\b\fs26 Container/network trust boundary\b0\fs22\par
+\par
+flowchart TB\par
+    Internet -->|HTTP to localhost/reverse proxy| API[PDF Studio API]\par
+    API -->|internal network only| WORKER[Private worker]\par
+    WORKER -->|internal network only| GOT[Gotenberg]\par
+    WORKER -. blocked public egress in CI .-> X[Public Internet]\par
+    GOT -. no published host port .-> X\par
+\par
+\par
+Important implemented controls:\par
+\par
+- Worker has no public host port.\par
+- Gotenberg has no public host port.\par
+- Processing network is internal in Compose.\par
+- Worker/Gotenberg run with read-only filesystem/root restrictions and resource limits.\par
+- CI verifies non-root identity, read-only code filesystem and blocked public egress.\par
+- Request adapters disable environment proxies and redirects.\par
+- Gotenberg endpoint is operator configuration, not user request data.\par
+- PR #19 additionally rejects public converter hostnames.\par
+\par
+This is meaningful isolation, but it is not a perfect hostile-document VM sandbox.\par
+\par
+---\par
+\par
+\par\b\fs30 4. Main modules and responsibilities\b0\fs22\par
+\par
+| Path | Responsibility | Important notes |\par
+| --- | --- | --- |\par
+| app/main.py | FastAPI routes, upload reading, status/error mapping, download responses | PR #19 adds POST /api/tools/pptx-to-pdf |\par
+| app/toolkit.py | Tool catalog and pypdf operations | Core PDF tools stay here; do not duplicate with Gotenberg without evidence |\par
+| app/pdf_engine.py | Shared PDF byte/page limits and merge validation | Keep existing limits unless an evidence-based change is approved |\par
+| app/gotenberg.py | Trusted Office conversion adapter | PR #19 generalizes DOCX -> shared OOXML DOCX/PPTX validation/conversion |\par
+| app/worker.py | Private-worker routing + bounded child execution | Office conversions must reuse this path |\par
+| app/worker_service.py | Private worker HTTP boundary | No public port |\par
+| app/upload_limits.py | Raw-body bounds before multipart parsing, concurrency limits | Security-critical |\par
+| app/page_decorations.py | Page number/watermark/crop operations | Crop is not secure redaction |\par
+| app/static/app.js | No-build browser workspace, upload/options/download/chaining | Extend rather than migrate to React without evidence |\par
+| app/static/index.html | Branded interface | Tool count/copy must remain truthful |\par
+| app/static/styles.css | Responsive styling | Preserve mobile-width behavior |\par
+| compose.yaml | API/worker/Gotenberg topology | PR #19 pins Gotenberg immutably |\par
+| .github/workflows/ci.yml | Required quality/test/package/audit/container/integration/guardrail/mutation gates | Never weaken to make a PR green |\par
+\par
+---\par
+\par
+\par\b\fs30 5. Current tools and feature status\b0\fs22\par
+\par
+Status semantics:\par
+\par
+- PLANNED: accepted backlog, not implemented.\par
+- IN_PROGRESS: active implementation.\par
+- TESTED: implemented with meaningful automated/real output verification.\par
+- SHIPPED: production/release quality; do not use casually.\par
+\par
+No current prototype feature should be called SHIPPED merely because unit tests pass.\par
+\par
+\par\b\fs26 Tested prototype set after PR #19\b0\fs22\par
+\par
+Core PDF tools include merge, split, extract, delete, reorder, rotate, compress, metadata, text extraction, protect, unlock, page numbers, text watermark and visual crop, plus:\par
+\par
+- DOCX-to-PDF - TESTED through private Gotenberg.\par
+- PPTX-to-PDF - TESTED in PR #19 through private Gotenberg.\par
+\par
+\par\b\fs26 Important honest limitations\b0\fs22\par
+\par
+- Visual crop/whiteout is not secure redaction.\par
+- PDF text extraction is not OCR.\par
+- PDF.js is not native text editing.\par
+- Drawing new text over old text is not underlying text modification.\par
+- Password protection is not a certificate signature.\par
+- Prototype implemented != production ready.\par
+\par
+---\par
+\par
+\par\b\fs30 6. Primary upstream research decision\b0\fs22\par
+\par
+Exactly two primary repositories were selected.\par
+\par
+\par\b\fs26 6.1 Gotenberg\b0\fs22\par
+\par
+- Repository: https://github.com/gotenberg/gotenberg\par
+- Selected release: v9.5.1\par
+- Tag commit: 2a025609d36eb7a970c31397e652ee439a7214fe\par
+- Project license: MIT\par
+- Role: private server-side Office/document conversion.\par
+- PR #19 tested container:\par
+  gotenberg/gotenberg:9.5.1@sha256:a0f596c2aeee6391c24ccf2953737971f13976b14d4240525a447f209185e2c8\par
+\par
+Why selected:\par
+\par
+- Already integrated and working for DOCX.\par
+- LibreOffice route handles DOCX/PPTX/XLSX and other Office formats.\par
+- One stable HTTP boundary is simpler than a second converter backend.\par
+- Existing worker/network/test architecture can be reused.\par
+- No reason to replace working pypdf operations.\par
+\par
+Do not:\par
+\par
+- Copy Gotenberg's Go server into PDF Studio.\par
+- Expose Gotenberg publicly.\par
+- Accept arbitrary user-supplied conversion URLs.\par
+- Enable arbitrary remote document retrieval without a new security review.\par
+- Add another converter for the same feature without benchmark evidence.\par
+\par
+Runtime/license caution:\par
+\par
+Gotenberg's MIT license does not automatically cover the entire container. The exact image includes separately licensed runtime components such as LibreOffice, Chromium, Debian packages, fonts and other dependencies. Production redistribution needs image-level license/SBOM/security review.\par
+\par
+\par\b\fs26 6.2 Mozilla PDF.js\b0\fs22\par
+\par
+- Repository: https://github.com/mozilla/pdf.js\par
+- Selected release: v6.5.438\par
+- Tag commit: 0a4153349dc473ba950fc17941c5ca7eda43c1de\par
+- License: Apache-2.0\par
+- Role: Stage C browser PDF viewer/workspace foundation.\par
+- Current status: selected/researched, not yet integrated.\par
+\par
+Initial Stage C reuse targets:\par
+\par
+- High-quality PDF rendering.\par
+- Page thumbnails.\par
+- Page navigation.\par
+- Zoom.\par
+- Text selection.\par
+- Text search.\par
+- Rotated/mixed-size pages.\par
+- Responsive layout.\par
+- Keyboard interaction/accessibility.\par
+- Future annotation UI foundation.\par
+\par
+Do not claim PDF.js provides arbitrary high-fidelity underlying-PDF-text rewriting.\par
+\par
+Self-host audited PDF.js assets. Do not send local preview PDFs to a third-party CDN/service.\par
+\par
+---\par
+\par
+\par\b\fs30 7. Why other repositories are secondary\b0\fs22\par
+\par
+PUBLIC_PDF_REPOSITORIES.txt is the full study catalog.\par
+\par
+General conclusions:\par
+\par
+- pdf-lib / Konva / pdfme: possible targeted Stage C helpers, not replacements for Gotenberg/PDF.js.\par
+- OCRmyPDF: strong Stage D OCR specialist.\par
+- pyHanko: strong Stage D signing/validation specialist.\par
+- qpdf / PDFBox / pdfcpu: useful only when a demonstrated gap exists; avoid unnecessary duplicate engines.\par
+- PDFClear / Folio: study UX/editor interaction patterns; do not merge entire applications blindly.\par
+- Commercial SDKs such as Apryse/Nutrient: only for separate native-text-editing research with owner approval, license/cost analysis and proof of real underlying-content modification.\par
+- Do not introduce AGPL, noncommercial, source-available or paid SDK components into the intended proprietary product without explicit owner approval/license review.\par
+\par
+---\par
+\par
+\par\b\fs30 8. PPTX-to-PDF milestone - implementation record\b0\fs22\par
+\par
+\par\b\fs26 API\b0\fs22\par
+\par
+POST /api/tools/pptx-to-pdf\par
+\par
+Input: one PPTX file.\par
+Output: validated downloadable PDF.\par
+\par
+\par\b\fs26 OOXML/PPTX validation\b0\fs22\par
+\par
+PR #19:\par
+\par
+- Retains the 8 MiB input limit.\par
+- Requires ZIP/OOXML structure.\par
+- Requires [Content_Types].xml.\par
+- Requires ppt/presentation.xml.\par
+- Requires the exact PowerPoint main content type.\par
+- Rejects a DOCX renamed to .pptx.\par
+- Rejects invalid ZIP/non-PPTX archives.\par
+- Bounds entry count.\par
+- Bounds total declared expanded size.\par
+- Bounds per-entry expansion.\par
+- Bounds compression ratio.\par
+- Rejects unsafe/duplicate archive paths.\par
+- Rejects encrypted OOXML archives.\par
+- Does not extract the OOXML package to the filesystem.\par
+\par
+\par\b\fs26 Gotenberg request restrictions\b0\fs22\par
+\par
+- Fixed trusted route: /forms/libreoffice/convert.\par
+- No user-provided converter URL.\par
+- Environment proxies disabled.\par
+- Redirects disabled.\par
+- Public converter hostnames rejected by PR #19.\par
+- Compose service name/private literal addresses permitted.\par
+- No parallel conversion backend.\par
+\par
+\par\b\fs26 Output validation\b0\fs22\par
+\par
+Converted output must:\par
+\par
+- Have application/pdf response MIME.\par
+- Start with a PDF signature.\par
+- Parse strictly with pypdf.\par
+- Be unencrypted.\par
+- Have 1-200 pages.\par
+- Stay <= 40 MiB.\par
+\par
+\par\b\fs26 Error model\b0\fs22\par
+\par
+- Invalid input / converter rejection -> sanitized 422-class response.\par
+- Temporary Gotenberg/network failure -> sanitized 503 with retry semantics.\par
+- Converter-unavailable category survives API -> worker -> child boundaries.\par
+\par
+\par\b\fs26 Frontend\b0\fs22\par
+\par
+The existing no-build frontend:\par
+\par
+- Shows PowerPoint-to-PDF.\par
+- Accepts PPTX.\par
+- Explains current limits.\par
+- Converts/downloads.\par
+- Shows meaningful errors.\par
+- Can reuse resulting PDF in another tool.\par
+- Remains usable at mobile widths.\par
+- Does not migrate the app to React.\par
+\par
+---\par
+\par
+\par\b\fs30 9. PPTX tests and evidence\b0\fs22\par
+\par
+PR #19 added coverage for:\par
+\par
+- Valid PPTX acceptance.\par
+- Invalid file rejection.\par
+- Non-PPTX OOXML/ZIP rejection.\par
+- Oversized input.\par
+- Excessive expanded ZIP.\par
+- Aggressive compression ratio.\par
+- Unsafe archive paths.\par
+- Wrong converter response type.\par
+- Corrupt PDF output.\par
+- Gotenberg unavailable.\par
+- Existing DOCX regression.\par
+- Strict valid PDF/page-count validation.\par
+- Existing worker reuse.\par
+- Sanitized worker/converter outage propagation.\par
+- Browser: PPTX upload -> convert -> download -> reopen/validate -> use result in another tool.\par
+- Real private-Gotenberg conversion using a dependency-free synthetic PPTX.\par
+\par
+\par\b\fs26 Final CI evidence\b0\fs22\par
+\par
+Final PR #19 run:\par
+\par
+- URL: https://github.com/renoukhan39-bit/pdfstudio/actions/runs/43745920531\par
+- CI run number: 54\par
+- Head: 4de25046f37ea214257b01ae7b23dd6a30fcfa30\par
+- Result: success\par
+\par
+Evidence from the run:\par
+\par
+- python scripts/check.py passed.\par
+- Plain python -m pytest -q passed.\par
+- 80 tests passed.\par
+- 77 subtests passed.\par
+- Branch-inclusive coverage: 91.42%.\par
+- Required minimum remained 85%.\par
+- Ruff passed.\par
+- Build/package smoke passed.\par
+- Dependency audit passed with no advisory exclusion.\par
+- Container smoke passed.\par
+- Mutation tests passed.\par
+- CI contract passed.\par
+- Compose startup passed.\par
+- Immutable Gotenberg image assertion passed.\par
+- Private worker/Gotenberg isolation passed.\par
+- Browser flow passed.\par
+- DOCX smoke passed.\par
+- PPTX smoke passed with expected slide text and sensible page count.\par
+\par
+The synthetic PPTX expected text is:\par
+\par
+PDF Studio PowerPoint smoke test\par
+\par
+---\par
+\par
+\par\b\fs30 10. CI contract\b0\fs22\par
+\par
+Current required CI jobs include:\par
+\par
+flowchart TD\par
+    PR[PR / main push / merge queue] --> Q[Lint + syntax]\par
+    PR --> T[Tests Python 3.11]\par
+    PR --> U[Tests Python 3.12]\par
+    PR --> V[Tests Python 3.13]\par
+    PR --> P[Package + installed-app smoke]\par
+    PR --> D[Dependency audit + SBOM]\par
+    PR --> C[Container smoke]\par
+    PR --> I[Compose isolation + browser + Office smoke]\par
+    PR --> G[CI contract guard]\par
+    PR --> M[Mutation checks]\par
+    Q --> R[CI required]\par
+    T --> R\par
+    U --> R\par
+    V --> R\par
+    P --> R\par
+    D --> R\par
+    C --> R\par
+    I --> R\par
+    G --> R\par
+    M --> R\par
+\par
+\par
+Rules:\par
+\par
+- Never remove failing checks to get green.\par
+- Never reduce the required coverage threshold.\par
+- Never remove critical tests.\par
+- Never add a security-audit exclusion merely to pass.\par
+- Keep the Python version matrix.\par
+- Keep package/install evidence.\par
+- Keep Docker/Chromium integration evidence.\par
+- Keep mutation/guardrail jobs.\par
+- Treat CI required as the aggregate gate.\par
+\par
+Common commands:\par
+\par
+python scripts/check.py\par
+python -m pytest -q\par
+python -m ruff check app tests scripts\par
+python -m pytest -q --cov=app --cov-branch --cov-report=term-missing --cov-fail-under=85\par
+python -m build\par
+python -m pip_audit --skip-editable\par
+docker compose up --build -d --wait\par
+python scripts/gotenberg_smoke.py\par
+python scripts/pptx_smoke.py\par
+python scripts/browser_smoke.py\par
+\par
+\par
+If Docker or Chromium is unavailable in a local environment, rely on GitHub Actions for that verification and say so explicitly; do not claim unrun commands passed.\par
+\par
+---\par
+\par
+\par\b\fs30 11. Security audit summary\b0\fs22\par
+\par
+\par\b\fs26 Existing strengths\b0\fs22\par
+\par
+- Raw request bytes bounded before multipart parsing.\par
+- Per-file/combined upload limits.\par
+- Processing slots and wall timeout.\par
+- Linux CPU/address-space/core-dump limits for child work.\par
+- Temporary upload handles closed on exit paths.\par
+- Private worker service.\par
+- Private Gotenberg service.\par
+- Read-only filesystem/container restrictions.\par
+- Dropped capabilities/no-new-privileges.\par
+- Resource limits.\par
+- Environment proxies disabled on private adapters.\par
+- Redirects disabled.\par
+- Strict converted-PDF validation.\par
+- No document database/cloud history added.\par
+- Browser chaining avoids unnecessary server persistence.\par
+\par
+\par\b\fs26 Remaining security gaps\b0\fs22\par
+\par
+- Container isolation shares the host kernel.\par
+- Public production needs TLS.\par
+- Public production needs auth/rate limits/per-user quotas.\par
+- Cross-replica/global compute quotas are incomplete.\par
+- Retention/deletion policy requires owner decision.\par
+- Production monitoring/incident response missing.\par
+- Container image scanning/SBOM review remains.\par
+- Full hostile-document corpus is incomplete.\par
+- Office fidelity/security corpus is small.\par
+- Reverse-proxy/edge controls need production design.\par
+\par
+Treat every PDF and Office file as untrusted.\par
+\par
+Never log private document contents or passwords.\par
+\par
+---\par
+\par
+\par\b\fs30 12. Licensing status\b0\fs22\par
+\par
+\par\b\fs26 PDF Studio original code\b0\fs22\par
+\par
+No owner-approved project-wide software license is selected.\par
+\par
+Public visibility is not the same as an open-source license.\par
+\par
+Do not silently choose a license for the owner.\par
+\par
+\par\b\fs26 Current main dependencies\b0\fs22\par
+\par
+Version/license details are tracked in pyproject.toml and docs/LICENSING-AND-DEPENDENCIES.md. Recheck exact versions when they change.\par
+\par
+\par\b\fs26 Gotenberg\b0\fs22\par
+\par
+- Project: MIT.\par
+- Container: includes separately licensed components.\par
+- Need production image-level license/SBOM/vulnerability review.\par
+\par
+\par\b\fs26 PDF.js\b0\fs22\par
+\par
+- Apache-2.0.\par
+- Future bundled distribution must retain required license/attribution material and third-party notices.\par
+\par
+\par\b\fs26 Native text editing\b0\fs22\par
+\par
+Commercial SDK decision remains open. Do not purchase/integrate a paid SDK without owner approval.\par
+\par
+---\par
+\par
+\par\b\fs30 13. Documentation problems already identified/corrected in PR #19\b0\fs22\par
+\par
+Before PR #19, docs contained stale/contradictory claims such as:\par
+\par
+- 14 tools in some files.\par
+- 15 tools in other files.\par
+- Gotenberg still described as "planned".\par
+- Worker isolation described as not implemented despite Compose isolation existing.\par
+\par
+PR #19 updates the relevant documentation to distinguish:\par
+\par
+- implemented/tested prototype,\par
+- production-ready/shipped,\par
+- planned/research.\par
+\par
+Future agents should actively check for similar drift.\par
+\par
+---\par
+\par
+\par\b\fs30 14. Next ten implementation tasks\b0\fs22\par
+\par
+This is the current recommended order after PPTX-to-PDF.\par
+\par
+| # | Task | Acceptance criteria |\par
+| --- | --- | --- |\par
+| 1 | XLSX-to-PDF | Validate workbook OOXML/content types, reject DOCX/PPTX/renamed ZIP, reuse worker/Gotenberg, synthetic cell/table text + page verification, browser chaining, all DOCX/PPTX regressions green |\par
+| 2 | Office fidelity corpus | Fonts, tables, charts, themes, multilingual text, malformed packages; document expected output and resource ceilings |\par
+| 3 | Controlled HTML-to-PDF | Bounded HTML/assets ingestion; no arbitrary URL/SSRF path; no third-party preview leakage |\par
+| 4 | PDF-to-image | Bounded DPI/pages/output, correct dimensions/order, raster-memory limits |\par
+| 5 | Image-to-PDF | Bounded JPEG/PNG, preserve ordering/orientation, reopen PDF and verify page count/dimensions |\par
+| 6 | Initial PDF.js viewer | Self-host v6.5.438 assets, render current PDF, thumbnails, navigation, zoom, no external document requests |\par
+| 7 | PDF.js search/accessibility cleanup | Text selection/search, rotated/mixed pages, keyboard navigation, mobile responsiveness, object-URL/document/worker cleanup |\par
+| 8 | Native existing-text editing research | Underlying content really changes; extraction proves change; font/layout benchmarks; license/cost comparison; no overlay substitute |\par
+| 9 | OCRmyPDF Stage D slice | Isolated searchable-PDF OCR, multilingual fixtures, bounded time/size, verify text layer |\par
+| 10 | Secure redaction + signing design gates | Redaction passes forensic recovery checks; signing passes independent cryptographic validation |\par
+\par
+\par\b\fs26 Next smallest PR\b0\fs22\par
+\par
+XLSX-to-PDF only.\par
+\par
+Do not combine it with PDF.js, HTML conversion, OCR, accounts, billing or AI.\par
+\par
+---\par
+\par
+\par\b\fs30 15. Stage C PDF.js plan\b0\fs22\par
+\par
+\par\b\fs26 Initial viewer acceptance\b0\fs22\par
+\par
+- Render current uploaded PDF.\par
+- Navigate pages.\par
+- Show thumbnails.\par
+- Zoom.\par
+- Select text.\par
+- Search text.\par
+- Handle rotated pages.\par
+- Handle mixed page sizes.\par
+- Remain responsive.\par
+- Clean object URLs/resources on replacement.\par
+- Support keyboard navigation.\par
+- Avoid third-party document transfer.\par
+- Preserve existing download/tool-chaining workflow.\par
+\par
+\par\b\fs26 Build strategy\b0\fs22\par
+\par
+Current frontend is no-build HTML/CSS/JS.\par
+\par
+Default assumption: extend it safely first.\par
+\par
+Introduce a minimal build/copy step only if audited PDF.js asset management genuinely needs it.\par
+\par
+Do not migrate to React/Next.js merely to add a viewer.\par
+\par
+\par\b\fs26 Native text editing is separate\b0\fs22\par
+\par
+PDF.js viewer/editor UI features do not prove arbitrary native existing-text modification.\par
+\par
+Native-text research must verify:\par
+\par
+- underlying text object/content stream changes,\par
+- extracted text after editing,\par
+- font/layout fidelity,\par
+- multilingual/complex-script behavior,\par
+- no hidden old text under an overlay,\par
+- clear commercial license/cost.\par
+\par
+---\par
+\par
+\par\b\fs30 16. Stage D plan\b0\fs22\par
+\par
+Later Stage D candidates:\par
+\par
+- OCRmyPDF for searchable scanned PDFs.\par
+- Multilingual OCR fixtures.\par
+- True secure redaction with forensic verification.\par
+- pyHanko-style certificate signatures and validation.\par
+- PDF/A/conformance checks.\par
+- Repair/professional page operations.\par
+\par
+Each must have:\par
+\par
+- tested output,\par
+- explicit limitations,\par
+- security review,\par
+- license review,\par
+- real end-to-end acceptance evidence.\par
+\par
+---\par
+\par
+\par\b\fs30 17. Owner/AI working rules\b0\fs22\par
+\par
+The owner has a constrained coding/AI budget and wants credit-efficient development.\par
+\par
+Working strategy:\par
+\par
+- Reuse existing working code.\par
+- Reuse mature compatible public engines.\par
+- Do not ask expensive coding agents to rebuild solved components.\par
+- Give expensive coding agents narrow blockers with clear tests.\par
+- Let GitHub Actions make wrong changes fail loudly.\par
+- Keep PRs focused.\par
+- Preserve existing behavior.\par
+- Prefer verifiable progress over speculative architecture.\par
+\par
+The owner previously asked to freeze Stages E/F and prioritize A-D.\par
+\par
+---\par
+\par
+\par\b\fs30 18. Historical project-chat context available to this session\b0\fs22\par
+\par
+The project context exposes these older excerpts. They are not complete transcripts.\par
+\par
+\par\b\fs26 2026-11-13 - repository/project planning\b0\fs22\par
+\par
+Owner asked to:\par
+\par
+- check the updated repository,\par
+- report status,\par
+- explain the complete project idea,\par
+- identify repositories to learn from or integrate,\par
+- define start-to-end tasks,\par
+- divide work around testing/tool limits,\par
+- conserve expensive coding-model credits,\par
+- reuse public repositories where appropriate,\par
+- keep optimized/new code for stronger coding models,\par
+- block Stages E/F and complete A-D first.\par
+\par
+Owner later asked again to check open PRs and preserve the public-repository study list in the repo.\par
+\par
+\par\b\fs26 2026-11-14 - CI / implementation\b0\fs22\par
+\par
+Owner asked to:\par
+\par
+- start implementing,\par
+- build complete GitHub Actions so other developers/AI can contribute safely,\par
+- make wrong changes fail tests,\par
+- work in focused time/credit constraints,\par
+- push implementation rather than only plan,\par
+- improve CI so other AI tools can work safely.\par
+\par
+\par\b\fs26 2026-11-15 - project chat access / repository list\b0\fs22\par
+\par
+Owner asked whether the assistant could access other project chats, then asked to:\par
+\par
+- inspect open PRs,\par
+- merge only when appropriate/authorized,\par
+- list previously recommended study repositories,\par
+- create a text file,\par
+- push it to the current repository.\par
+\par
+That work produced/updated PUBLIC_PDF_REPOSITORIES.txt and supporting docs on main.\par
+\par
+For more of the current visible conversation, see docs/CHAT-ARCHIVE-2026-11-16.md.\par
+\par
+---\par
+\par
+\par\b\fs30 19. Important GitHub links\b0\fs22\par
+\par
+\par\b\fs26 Main repository\b0\fs22\par
+\par
+- https://github.com/renoukhan39-bit/pdfstudio\par
+\par
+\par\b\fs26 Current PPTX feature\b0\fs22\par
+\par
+- PR #19: https://github.com/renoukhan39-bit/pdfstudio/pull/19\par
+- Final CI #54: https://github.com/renoukhan39-bit/pdfstudio/actions/runs/43745920531\par
+- Final head: https://github.com/renoukhan39-bit/pdfstudio/commit/4de25046f37ea214257b01ae7b23dd6a30fcfa30\par
+\par
+\par\b\fs26 Main baseline at start of PPTX milestone\b0\fs22\par
+\par
+- main commit: 5fc186c8817bc7719b543e029e7ee0b20386e91f\par
+- Baseline CI #50 was green before PPTX work.\par
+\par
+\par\b\fs26 Primary upstreams\b0\fs22\par
+\par
+- Gotenberg: https://github.com/gotenberg/gotenberg\par
+- Gotenberg v9.5.1: https://github.com/gotenberg/gotenberg/releases/tag/v9.5.1\par
+- Mozilla PDF.js: https://github.com/mozilla/pdf.js\par
+- PDF.js v6.5.438: https://github.com/mozilla/pdf.js/releases/tag/v6.5.438\par
+\par
+\par\b\fs26 Later specialists\b0\fs22\par
+\par
+- OCRmyPDF: https://github.com/ocrmypdf/OCRmyPDF\par
+- pyHanko: https://github.com/MatthiasValvekens/pyHanko\par
+- pdf-lib: https://github.com/Hopding/pdf-lib\par
+- Konva: https://github.com/konvajs/konva\par
+- pdfme: https://github.com/pdfme/pdfme\par
+- qpdf: https://github.com/qpdf/qpdf\par
+\par
+The complete repository study list is PUBLIC_PDF_REPOSITORIES.txt.\par
+\par
+---\par
+\par
+\par\b\fs30 20. How a new AI session should start\b0\fs22\par
+\par
+A future AI should perform this sequence:\par
+\par
+flowchart TD\par
+    A[Read AGENTS.md] --> B[Read PROJECT-CONTINUITY.md]\par
+    B --> C[Read ACTIVE-SCOPE.md]\par
+    C --> D[Read IMPLEMENTATION-STATUS/BACKLOG]\par
+    D --> E[Check live GitHub main + open PRs + latest CI]\par
+    E --> F\{Does documentation match source?\}\par
+    F -->|No| G[Correct stale docs while preserving source]\par
+    F -->|Yes| H[Choose smallest A-D task]\par
+    G --> H\par
+    H --> I[Implement one vertical slice]\par
+    I --> J[Run required local/CI tests]\par
+    J --> K[Open focused PR]\par
+    K --> L[Update continuity document]\par
+\par
+\par
+\par\b\fs26 Before coding\b0\fs22\par
+\par
+Verify:\par
+\par
+- current default branch head,\par
+- open PRs,\par
+- latest CI,\par
+- scope,\par
+- engine/version decisions,\par
+- current tool count,\par
+- whether the intended task is already implemented,\par
+- license implications.\par
+\par
+\par\b\fs26 During coding\b0\fs22\par
+\par
+- Do not replace working modules just because another framework is fashionable.\par
+- Do not copy full public applications into the repo.\par
+- Do not weaken tests.\par
+- Do not invent production-readiness claims.\par
+- Keep private documents out of logs/issues/fixtures.\par
+- Use synthetic fixtures.\par
+\par
+\par\b\fs26 After coding\b0\fs22\par
+\par
+Update:\par
+\par
+- tests,\par
+- relevant status docs,\par
+- decision docs when architecture changes,\par
+- this continuity file,\par
+- session archive if the work materially changes project state.\par
+\par
+---\par
+\par
+\par\b\fs30 21. Known unresolved decisions\b0\fs22\par
+\par
+Owner approval still required for:\par
+\par
+1. Original PDF Studio source-code license.\par
+2. Contribution policy.\par
+3. Public production hosting/provider.\par
+4. Retention/deletion/privacy policy.\par
+5. Commercial native-text-editing SDK spend, if any.\par
+6. Public deployment security/rate-limit strategy.\par
+7. Any paid infrastructure/service.\par
+\par
+Do not silently decide these.\par
+\par
+---\par
+\par
+\par\b\fs30 22. Definition of "done" for a feature\b0\fs22\par
+\par
+A feature is not complete merely because the engine exposes an API.\par
+\par
+A strong acceptance gate includes:\par
+\par
+- real code,\par
+- correct API/UI integration,\par
+- synthetic and edge-case tests,\par
+- negative/security tests,\par
+- actual output reopened and validated,\par
+- expected text/pages/structure checked,\par
+- browser flow where relevant,\par
+- worker/isolation path preserved,\par
+- license/security review,\par
+- docs updated,\par
+- limitations stated,\par
+- required CI green.\par
+\par
+Only then can it be TESTED. SHIPPED requires broader release/production evidence.\par
+\par
+---\par
+\par
+\par\b\fs30 23. Continuity change log\b0\fs22\par
+\par
+\par\b\fs26 2026-11-16\b0\fs22\par
+\par
+Created this continuity/handoff document because long ChatGPT conversations were becoming difficult to reload reliably. Goal: make the GitHub repository itself the durable project memory.\par
+\par
+The companion visible-chat archive is:\par
+\par
+docs/CHAT-ARCHIVE-2026-11-16.md\par
+\par
+A human-readable Word snapshot is also stored as:\par
+\par
+docs/PROJECT-CONTINUITY.docx\par
+\par
+Future updates should keep the Markdown version authoritative because GitHub, code search and coding agents can parse it directly.\par
+\par
+\par
+
+}
